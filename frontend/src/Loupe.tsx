@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Job, Template } from "./api";
+import { useConfirm } from "./fx/effects";
+import { TrashIcon } from "./Gallery";
 
 interface Props {
   job: Job;
@@ -8,12 +10,18 @@ interface Props {
   onRequestClose: () => void;
   onStep: (direction: -1 | 1) => void;
   onReuse: (job: Job, keepSeed: boolean) => void;
+  onDelete: (job: Job) => void;
+  /** 可以接手這張圖的模板（有圖片欄位的），例如高清放大、圖生圖 */
+  followUps: Template[];
+  onSendTo: (job: Job, template: Template) => void;
 }
 
 /** 放大檢視：單張大圖、當時的設定、再生成。開關由 App 包在 View Transition 裡。 */
-export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }: Props) {
+export function Loupe({ job, number, template, onRequestClose, onStep, onReuse, onDelete, followUps, onSendTo }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [copied, setCopied] = useState(false);
+  const del = useConfirm(() => onDelete(job));
+  const deletable = job.status !== "running";
 
   // 要在 View Transition 擷取新畫面之前就開好，所以用 layout effect
   useLayoutEffect(() => {
@@ -21,7 +29,10 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
     if (dialog && !dialog.open) dialog.showModal();
   }, []);
 
-  useEffect(() => setCopied(false), [job.id]);
+  useEffect(() => {
+    setCopied(false);
+    del.reset();
+  }, [job.id]);
 
   const sent = typeof job.params.prompt === "string" ? job.params.prompt : "";
   const source = job.sources?.prompt;
@@ -65,6 +76,7 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") onStep(-1);
         if (e.key === "ArrowRight") onStep(1);
+        if (e.key === "Delete" && deletable) del.trigger();
       }}
     >
       <div className="loupe-inner">
@@ -142,10 +154,23 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
             <button className="ghost" onClick={() => onReuse(job, true)}>
               把這組設定帶回編輯
             </button>
+            {image &&
+              followUps.map((t) => (
+                <button key={t.id} className="ghost" onClick={() => onSendTo(job, t)}>
+                  拿這張去{t.name.replace(/（.*）/, "")}
+                </button>
+              ))}
             {image && (
               <a className="ghost" href={`/outputs/${image}`} download={`easycomfy-${number}.png`}>
                 下載圖片
               </a>
+            )}
+            {deletable && (
+              <button className={del.armed ? "danger is-armed" : "danger"} onClick={del.trigger}>
+                <TrashIcon />
+                {del.armed ? "再按一次確認刪除" : "刪除這張"}
+                <kbd aria-hidden>Del</kbd>
+              </button>
             )}
           </div>
         </div>

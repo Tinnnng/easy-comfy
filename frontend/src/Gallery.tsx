@@ -1,5 +1,5 @@
 import type { Job } from "./api";
-import { tiltHandlers } from "./fx/effects";
+import { tiltHandlers, useConfirm } from "./fx/effects";
 
 interface Props {
   jobs: Job[];
@@ -7,6 +7,7 @@ interface Props {
   /** 目前在放大檢視的任務；它的縮圖要讓出 view-transition-name */
   openId: string | null;
   onOpen: (job: Job) => void;
+  onDelete: (job: Job) => void;
 }
 
 const STATUS: Partial<Record<Job["status"], string>> = {
@@ -18,7 +19,7 @@ const STATUS: Partial<Record<Job["status"], string>> = {
 
 const tilt = tiltHandlers();
 
-export function Gallery({ jobs, numberOf, openId, onOpen }: Props) {
+export function Gallery({ jobs, numberOf, openId, onOpen, onDelete }: Props) {
   return (
     <ol className="gallery">
       {jobs.map((job) => {
@@ -57,6 +58,7 @@ export function Gallery({ jobs, numberOf, openId, onOpen }: Props) {
                 {seconds !== null && job.status === "succeeded" && <span>{seconds.toFixed(1)}s</span>}
               </span>
             </button>
+            {job.status !== "running" && <TileDelete n={n} onConfirm={() => onDelete(job)} />}
             <p className="tile-prompt" title={prompt}>
               {prompt}
             </p>
@@ -64,5 +66,33 @@ export function Gallery({ jobs, numberOf, openId, onOpen }: Props) {
         );
       })}
     </ol>
+  );
+}
+
+/** 卡片右上角的刪除鈕：第一次按變成確認狀態，再按一次才刪。 */
+function TileDelete({ n, onConfirm }: { n: number; onConfirm: () => void }) {
+  const { armed, trigger, reset } = useConfirm(onConfirm);
+  return (
+    <button
+      type="button"
+      className={armed ? "tile-delete is-armed" : "tile-delete"}
+      onClick={trigger}
+      onBlur={reset}
+      aria-label={armed ? `再按一次確認刪除第 ${n} 張` : `刪除第 ${n} 張`}
+    >
+      <TrashIcon />
+      {armed && <span>確認刪除</span>}
+    </button>
+  );
+}
+
+export function TrashIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden>
+      <path
+        d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m2 0-.6 9.1a2 2 0 0 1-2 1.9H8.6a2 2 0 0 1-2-1.9L6 6m2.5 3v5m3-5v5"
+        fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
   );
 }

@@ -1,6 +1,7 @@
-"""背景 worker：一次從佇列取一個任務送到 ComfyUI，追蹤進度直到完成。
+"""背景 worker：從佇列取任務送到 ComfyUI，追蹤進度直到完成。
 
-8GB 顯卡同時只適合跑一個任務，所以這裡刻意只有一個 worker 協程。
+每台 ComfyUI 配一個 worker，一次只跑一個任務（8GB 顯卡同時跑兩個很容易爆記憶體）。
+多台 ComfyUI 時由 WorkerPool 管理，大家從同一個佇列搶任務，誰空下來誰接。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import websockets
 from .comfy_client import ComfyClient, ComfyError
 from .db import Database, Job, JobStatus, utcnow
 from .events import EventBus
+from .queue import JobQueue, SqliteQueue
 from .templates import Template
 
 log = logging.getLogger(__name__)
@@ -28,22 +30,31 @@ class JobCancelled(Exception):
 
 class Worker:
     def __init__(self, db: Database, comfy: ComfyClient, bus: EventBus,
-                 templates: dict[str, Template], outputs_dir: Path, job_timeout: float):
+                 templates: dict[str, Template], outputs_dir: Path, job_timeout: float,
+                 queue: JobQueue | None = None, name: str = "comfy-1",
+                 primary: ComfyClient | None = None):
         self.db = db
         self.comfy = comfy
         self.bus = bus
         self.templates = templates
         self.outputs_dir = outputs_dir
         self.job_timeout = job_timeout
-        self._wake = asyncio.Event()
-        self._current_id: str | None = None
+        self.queue = queue or SqliteQueue(db)
+        self.name = name
+        # 上傳的原圖只存在第一台 ComfyUI；其他台跑圖生圖前要先把圖複製過來
+        self.primary = primary or comfy
+        self.current_id: str | None = None
         self._cancel_requested = False
         self._task: asyncio.Task[None] | None = None
 
-    # ---- 給 API 呼叫 ----
-
     def start(self) -> None:
-        self._task = asyncio.create_task(self._run_forever(), name="easycomfy-worker")
+        self._task = asyncio.create_task(self._run_forever(), name=f"easycomfy-worker-{self.name}")
+        self._task.add_done_callback(self._log_exit)
+
+    def _log_exit(self, task: asyncio.Task[None]) -> None:
+        # 背景任務的例外沒人 await 就會無聲無息消失，這裡一定要記下來
+        if not task.cancelled() and task.exception():
+            log.error("worker %s 意外結束", self.name, exc_info=task.exception())
 
     async def stop(self) -> None:
         if self._task:
@@ -53,23 +64,10 @@ class Worker:
             except asyncio.CancelledError:
                 pass
 
-    def notify(self) -> None:
-        """有新任務進佇列時呼叫，讓 worker 不用等輪詢。"""
-        self._wake.set()
-
-    async def cancel(self, job_id: str) -> bool:
-        """取消任務。queued 直接標記；running 則請 ComfyUI 中斷。回傳是否有效。"""
-        job = self.db.get(job_id)
-        if job is None:
-            return False
-        if job.status == JobStatus.queued:
-            self._emit(self.db.update(job_id, status=JobStatus.cancelled, finished_at=utcnow()))
-            return True
-        if job.status == JobStatus.running and job_id == self._current_id:
-            self._cancel_requested = True
-            await self.comfy.interrupt()
-            return True
-        return False
+    async def interrupt(self) -> None:
+        """取消目前執行中的任務。"""
+        self._cancel_requested = True
+        await self.comfy.interrupt()
 
     # ---- 內部流程 ----
 
@@ -78,19 +76,24 @@ class Worker:
 
     async def _run_forever(self) -> None:
         while True:
-            job = self.db.next_queued()
-            if job is None:
-                self._wake.clear()
-                try:
-                    # 保底每 5 秒檢查一次，避免漏掉喚醒訊號
-                    await asyncio.wait_for(self._wake.wait(), timeout=5)
-                except TimeoutError:
-                    pass
+            try:
+                job_id = await self.queue.pop(timeout=5)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 — 例如 Redis 暫時連不上；redis 的例外不是 OSError
+                # 等一下再試，不要讓 worker 整個掛掉
+                log.warning("worker %s 讀不到佇列：%r", self.name, e)
+                await asyncio.sleep(3)
                 continue
-            await self._process(job)
+            if job_id is None:
+                continue
+            job = self.db.claim(job_id, self.name)
+            if job is not None:
+                await self._process(job)
+
 
     async def _process(self, job: Job) -> None:
-        self._current_id = job.id
+        self.current_id = job.id
         self._cancel_requested = False
         job = self.db.update(job.id, status=JobStatus.running, started_at=utcnow(), progress=0.0)
         self._emit(job)
@@ -115,14 +118,15 @@ class Worker:
             job = self.db.update(job.id, status=JobStatus.succeeded, finished_at=utcnow(),
                                  progress=1.0, images=images)
         finally:
-            self._current_id = None
+            self.current_id = None
         self._emit(job)
 
     async def _execute(self, job: Job) -> list[str]:
         template = self.templates.get(job.template_id)
         if template is None:
             raise ComfyError(f"模板 {job.template_id} 已不存在")
-        workflow = template.build_workflow(job.params)
+        params = await self._sync_inputs(template, job.params)
+        workflow = template.build_workflow(params)
 
         prompt_id: str | None = None
         failures = 0
@@ -164,9 +168,22 @@ class Worker:
             raise ComfyError("ComfyUI 重新啟動過，這個任務已經遺失")
         return state == "done"
 
+    # 這麼久沒收到任何事件，就改用 HTTP 問 ComfyUI 任務的狀態（事件可能在網路上遺失了）
+    IDLE_CHECK_SECONDS = 30.0
+
     async def _listen(self, job: Job, ws: Any, prompt_id: str) -> bool:
-        """處理 ComfyUI 事件，任務完成時回傳 True；串流中途結束回傳 False。"""
-        async for event in self.comfy.iter_events(ws):
+        """處理 ComfyUI 事件，任務完成時回傳 True；連線中途關閉回傳 False。"""
+        while True:
+            try:
+                async with asyncio.timeout(self.IDLE_CHECK_SECONDS):
+                    event = await self.comfy.next_event(ws)
+            except TimeoutError:
+                if await self._finished_while_away(prompt_id):
+                    log.warning("任務 %s 的完成事件沒收到，靠輪詢補上", job.id)
+                    return True
+                continue
+            except websockets.ConnectionClosed:
+                return False
             data: dict[str, Any] = event.get("data") or {}
             if data.get("prompt_id") not in (None, prompt_id):
                 continue  # 別人直接在 ComfyUI 介面送的任務
@@ -190,7 +207,24 @@ class Worker:
                     kind == "executing" and data.get("node") is None
                     and data.get("prompt_id") == prompt_id):
                 return True
-        return False
+
+    async def _sync_inputs(self, template: Template, params: dict[str, Any]) -> dict[str, Any]:
+        """圖片欄位指向的檔案只上傳到第一台 ComfyUI；這台沒有的話先複製過來。"""
+        if self.comfy is self.primary:
+            return params
+        params = dict(params)
+        for f in template.fields:
+            name = params.get(f.key)
+            if f.type != "image" or not name:
+                continue
+            if (await self.comfy.view_input(name)).status_code == 200:
+                continue
+            source = await self.primary.view_input(name)
+            if source.status_code != 200:
+                raise ComfyError("找不到上傳的原圖，請重新上傳")
+            content_type = source.headers.get("content-type", "image/png")
+            params[f.key] = await self.comfy.upload_image(name, source.content, content_type)
+        return params
 
     async def _save_outputs(self, job_id: str, prompt_id: str) -> list[str]:
         images = await self.comfy.output_images(prompt_id)
@@ -203,6 +237,38 @@ class Worker:
             (self.outputs_dir / name).write_bytes(await self.comfy.download(image))
             saved.append(name)
         return saved
+
+
+class WorkerPool:
+    """一台 ComfyUI 一個 worker，共用同一個佇列。"""
+
+    def __init__(self, workers: list[Worker], db: Database, bus: EventBus):
+        self.workers = workers
+        self.db = db
+        self.bus = bus
+
+    def start(self) -> None:
+        for w in self.workers:
+            w.start()
+
+    async def stop(self) -> None:
+        for w in self.workers:
+            await w.stop()
+
+    async def cancel(self, job_id: str) -> bool:
+        """取消任務。queued 直接標記；running 則請負責的那台 ComfyUI 中斷。回傳是否有效。"""
+        job = self.db.get(job_id)
+        if job is None:
+            return False
+        if job.status == JobStatus.queued:
+            job = self.db.update(job_id, status=JobStatus.cancelled, finished_at=utcnow())
+            self.bus.publish({"type": "job", "job": job.model_dump(mode="json")})
+            return True
+        for w in self.workers:
+            if job.status == JobStatus.running and w.current_id == job_id:
+                await w.interrupt()
+                return True
+        return False
 
 
 def _friendly_error(e: Exception) -> str:

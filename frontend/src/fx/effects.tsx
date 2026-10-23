@@ -97,3 +97,22 @@ export function magneticHandlers(strength = 0.25) {
     },
   };
 }
+
+/** 不可復原的動作要按兩次：第一次進入確認狀態，3 秒內沒再按就自動取消。 */
+export function useConfirm(action: () => void, timeout = 3000) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(false), timeout);
+    return () => window.clearTimeout(timer);
+  }, [armed, timeout]);
+  const trigger = () => {
+    if (armed) {
+      setArmed(false);
+      action();
+    } else {
+      setArmed(true);
+    }
+  };
+  return { armed, trigger, reset: () => setArmed(false) };
+}

@@ -15,9 +15,10 @@ def client(tmp_path):
 
 
 def test_health_reports_comfy_offline(client):
-    assert client.get("/api/health").json() == {
-        "ok": True, "comfy": False, "device": None, "vram_total": None, "vram_free": None,
-    }
+    health = client.get("/api/health").json()
+    assert {k: health[k] for k in ("ok", "comfy", "device", "queue")} == {
+        "ok": True, "comfy": False, "device": None, "queue": "sqlite"}
+    assert [i["name"] for i in health["instances"]] == ["comfy-1"]
 
 
 def test_templates_hide_workflow(client):
@@ -87,3 +88,59 @@ def test_image_param_must_be_an_uploaded_name(client):
                                        "params": {"image": "../x.png", "prompt": "a cat"}})
     assert r.status_code == 422
     assert r.json()["detail"]["field"] == "image"
+
+
+def _add_job(client, status, images=()):
+    from app.db import Job
+
+    db = client.app.state.pool.db
+    return db.add(Job(template_id="flux_schnell_t2i", params={"prompt": "x"}, status=status, images=list(images)))
+
+
+def test_delete_job_removes_record_and_image(client, tmp_path):
+    from app.db import JobStatus
+
+    (tmp_path / "outputs" / "a_0.png").write_bytes(b"PNG")
+    job = _add_job(client, JobStatus.succeeded, ["a_0.png"])
+    r = client.delete(f"/api/jobs/{job.id}")
+    assert r.status_code == 200 and r.json() == {"deleted": [job.id]}
+    assert client.get(f"/api/jobs/{job.id}").status_code == 404
+    assert not (tmp_path / "outputs" / "a_0.png").exists()
+
+
+def test_running_job_cannot_be_deleted(client):
+    from app.db import JobStatus
+
+    job = _add_job(client, JobStatus.running)
+    assert client.delete(f"/api/jobs/{job.id}").status_code == 409
+    assert client.get(f"/api/jobs/{job.id}").status_code == 200
+
+
+def test_clear_only_removes_requested_statuses(client):
+    from app.db import JobStatus
+
+    failed = _add_job(client, JobStatus.failed)
+    cancelled = _add_job(client, JobStatus.cancelled)
+    kept = _add_job(client, JobStatus.succeeded)
+    running = _add_job(client, JobStatus.running)
+    r = client.post("/api/jobs/clear", json={"statuses": ["failed", "cancelled", "running"]})
+    assert sorted(r.json()["deleted"]) == sorted([failed.id, cancelled.id])
+    remaining = {j["id"] for j in client.get("/api/jobs").json()}
+    assert remaining == {kept.id, running.id}
+
+
+def test_finished_image_can_become_an_input(client, tmp_path):
+    from app.db import JobStatus
+
+    (tmp_path / "outputs" / "b_0.png").write_bytes(b"PNG")
+    job = _add_job(client, JobStatus.succeeded, ["b_0.png"])
+    uploaded = {}
+
+    async def fake_upload(filename, data, content_type):
+        uploaded["data"] = data
+        return filename
+
+    client.app.state.comfy.upload_image = fake_upload
+    r = client.post(f"/api/jobs/{job.id}/as-input")
+    assert r.status_code == 201 and uploaded["data"] == b"PNG"
+    assert client.post(f"/api/jobs/{_add_job(client, JobStatus.failed).id}/as-input").status_code == 404

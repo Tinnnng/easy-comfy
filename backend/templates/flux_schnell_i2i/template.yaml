@@ -2,6 +2,7 @@ id: flux_schnell_i2i
 name: 圖生圖（改造一張圖）
 description: 上傳一張圖，描述你想把它變成什麼樣子。構圖會沿用原圖，內容和畫風依描述改變。
 order: 2
+heading: 你想把它變成什麼？
 workflow: workflow_api.json
 
 fields:

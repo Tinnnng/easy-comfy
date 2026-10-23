@@ -1,0 +1,45 @@
+# 一鍵啟動：docker compose up --build，然後打開 http://localhost:8080
+# ComfyUI 不在容器裡（需要直接用顯示卡），請先在本機啟動，預設連 http://host.docker.internal:8188
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      EASYCOMFY_QUEUE_BACKEND: redis
+      EASYCOMFY_REDIS_URL: redis://redis:6379/0
+      # 多台 ComfyUI 時改用 EASYCOMFY_COMFY_URLS，以逗號分隔
+      EASYCOMFY_COMFY_URL: ${COMFY_URL:-http://host.docker.internal:8188}
+      EASYCOMFY_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      EASYCOMFY_MYMEMORY_EMAIL: ${MYMEMORY_EMAIL:-}
+    extra_hosts:
+      # Linux 的 Docker 沒有預設的 host.docker.internal
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 用獨立的 volume，不和本機開發用的 backend/data 共用同一個 SQLite 檔
+      - app-data:/app/data
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  redis-data:
+  app-data:

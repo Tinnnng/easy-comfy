@@ -4,6 +4,7 @@ import { api, ApiError, subscribeJobs, type Health, type Job, type Template } fr
 import { Composer } from "./Composer";
 import { DevelopPanel } from "./DevelopPanel";
 import { NoiseField } from "./fx/NoiseField";
+import { useConfirm } from "./fx/effects";
 import { prefersReducedMotion } from "./fx/gl";
 import { Gallery } from "./Gallery";
 import { Loupe } from "./Loupe";
@@ -39,7 +40,20 @@ function withTransition(update: () => void): Promise<void> {
     update();
     return Promise.resolve();
   }
-  return doc.startViewTransition(() => flushSync(update)).updateCallbackDone;
+  // 頁面沒在繪製時（分頁在背景、視窗被遮住），轉場會一直等下一個影格而不執行更新；
+  // 300ms 內沒開始就直接更新，轉場之後若再執行也只是重設成同樣的狀態
+  let applied = false;
+  return new Promise((resolve) => {
+    const apply = () => {
+      if (!applied) {
+        applied = true;
+        flushSync(update);
+      }
+      resolve();
+    };
+    doc.startViewTransition!(apply);
+    window.setTimeout(apply, 300);
+  });
 }
 
 export function App() {
@@ -55,6 +69,13 @@ export function App() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const developRef = useRef<HTMLDivElement>(null);
+
+  const removeJobs = useCallback((ids: string[]) => {
+    const gone = new Set(ids);
+    setJobs((prev) => new Map([...prev].filter(([id]) => !gone.has(id))));
+    setPreviews((prev) => new Map([...prev].filter(([id]) => !gone.has(id))));
+    setBatchIds((prev) => prev.filter((id) => !gone.has(id)));
+  }, []);
 
   const upsertJob = useCallback((job: Job) => {
     setJobs((prev) => (isStale(prev.get(job.id), job) ? prev : new Map(prev).set(job.id, job)));
@@ -72,13 +93,14 @@ export function App() {
     return subscribeJobs({
       onJob: upsertJob,
       onPreview: (jobId, image) => setPreviews((prev) => new Map(prev).set(jobId, image)),
+      onDeleted: removeJobs,
       onConnection: (up) => {
         setLive(up);
         // 重新連上時補抓一次，避免斷線期間漏掉的更新
         if (up) api.jobs().then((js) => js.forEach(upsertJob)).catch(() => {});
       },
     });
-  }, [upsertJob]);
+  }, [upsertJob, removeJobs]);
 
   useEffect(() => {
     const check = () => api.health().then(setHealth).catch(() => setHealth(null));
@@ -112,6 +134,7 @@ export function App() {
   const dims = optionLabel(focusTemplate, "size", focusJob?.params.size ?? "square").match(/(\d+)\s*[×x]\s*(\d+)/);
   const steps = optionLabel(focusTemplate, "quality", focusJob?.params.quality ?? "normal").match(/(\d+)\s*步/);
   const busy = newestFirst.some((j) => j.status === "running");
+  const leftovers = newestFirst.filter((j) => j.status === "failed" || j.status === "cancelled").length;
   const runningStep = Math.round((newestFirst.find((j) => j.status === "running")?.progress ?? 0) * 100);
 
   const loupeIndex = loupeId ? newestFirst.findIndex((j) => j.id === loupeId) : -1;
@@ -150,6 +173,40 @@ export function App() {
     } else {
       setForm((f) => ({ templateId: job.template_id, values, version: (f?.version ?? 0) + 1 }));
       window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  async function remove(job: Job) {
+    // 放大檢視中刪掉的話，接著顯示下一張（較舊的），沒有就關閉
+    if (loupeId === job.id) {
+      const next = newestFirst[loupeIndex + 1] ?? newestFirst[loupeIndex - 1];
+      setLoupeId(next && next.id !== job.id ? next.id : null);
+    }
+    try {
+      removeJobs((await api.deleteJob(job.id)).deleted);
+    } catch (e) {
+      setError(e instanceof ApiError ? e : new ApiError(String(e)));
+    }
+  }
+
+  async function sendTo(job: Job, template: Template) {
+    const field = template.fields.find((f) => f.type === "image");
+    if (!field) return;
+    try {
+      const { name } = await api.jobAsInput(job.id);
+      void withTransition(() => setLoupeId(null));
+      setForm((f) => ({ templateId: template.id, values: { [field.key]: name }, version: (f?.version ?? 0) + 1 }));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      setError(e instanceof ApiError ? e : new ApiError(String(e)));
+    }
+  }
+
+  async function clearFinished() {
+    try {
+      removeJobs((await api.clearJobs(["failed", "cancelled"])).deleted);
+    } catch (e) {
+      setError(e instanceof ApiError ? e : new ApiError(String(e)));
     }
   }
 
@@ -239,6 +296,7 @@ export function App() {
           <div className="archive-head">
             <h2 id="archive-title">生成紀錄</h2>
             {newestFirst.length > 0 && <span className="count">{newestFirst.length} 張</span>}
+            {leftovers > 0 && <ClearButton count={leftovers} onConfirm={clearFinished} />}
           </div>
           {newestFirst.length === 0 ? (
             <p className="muted">生成的每一張圖都會留在這裡，可以隨時放大、下載，或用同一組設定再生成。</p>
@@ -248,6 +306,7 @@ export function App() {
               numberOf={numberOf}
               openId={loupeId}
               onOpen={(j) => withTransition(() => setLoupeId(j.id))}
+              onDelete={remove}
             />
           )}
         </section>
@@ -270,9 +329,22 @@ export function App() {
             if (next) setLoupeId(next.id);
           }}
           onReuse={reuse}
+          onDelete={remove}
+          followUps={templates.filter((t) => t.fields.some((f) => f.type === "image"))}
+          onSendTo={sendTo}
         />
       )}
     </div>
+  );
+}
+
+/** 一鍵清掉失敗和已取消的紀錄，一樣要按兩次確認。 */
+function ClearButton({ count, onConfirm }: { count: number; onConfirm: () => void }) {
+  const { armed, trigger, reset } = useConfirm(onConfirm);
+  return (
+    <button className={armed ? "danger is-armed clear" : "ghost clear"} onClick={trigger} onBlur={reset}>
+      {armed ? `再按一次，刪除 ${count} 筆` : `清除失敗與取消的紀錄（${count}）`}
+    </button>
   );
 }
 
@@ -302,6 +374,11 @@ function GpuStatus({ health, live, busy }: { health: Health | null; live: boolea
           <span className="gpu-num">
             {gb(used)}/{gb(total)} GB
           </span>
+        </span>
+      )}
+      {health.instances.length > 1 && (
+        <span className="gpu-num" title={health.instances.map((i) => `${i.name}：${i.url}`).join("、")}>
+          {health.instances.filter((i) => i.comfy).length}/{health.instances.length} 台
         </span>
       )}
       {!live && <span className="gpu-warn">即時更新重新連線中</span>}

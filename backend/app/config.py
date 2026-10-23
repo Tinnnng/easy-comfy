@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="EASYCOMFY_", env_file=BACKEND_DIR / ".env")
 
     comfy_url: str = "http://127.0.0.1:8188"
+    # 多台 ComfyUI 時用逗號分隔，例如 http://127.0.0.1:8188,http://192.168.1.20:8188；
+    # 每台各有一個 worker，第一台負責送單前檢查與接收上傳的圖片
+    comfy_urls: str = ""
+    # 佇列後端：sqlite（預設、零設定）或 redis（worker 可分散到多個行程）
+    queue_backend: str = "sqlite"
+    redis_url: str = "redis://localhost:6379/0"
     templates_dir: Path = BACKEND_DIR / "templates"
     data_dir: Path = BACKEND_DIR / "data"
     # 單一任務最長執行秒數，超過就中斷並標記失敗（第一次載入 Flux 模型可能要一兩分鐘）
@@ -20,6 +26,11 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     # 選填：提供 email 給 MyMemory 可把每日免費額度從約 5,000 提高到 50,000 字元
     mymemory_email: str | None = None
+
+    @property
+    def all_comfy_urls(self) -> list[str]:
+        urls = [u.strip() for u in self.comfy_urls.split(",") if u.strip()]
+        return urls or [self.comfy_url]
 
     @property
     def outputs_dir(self) -> Path:

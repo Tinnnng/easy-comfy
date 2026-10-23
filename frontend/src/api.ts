@@ -19,6 +19,8 @@ export interface Template {
   id: string;
   name: string;
   description: string;
+  heading: string;
+  action: string;
   fields: TemplateField[];
 }
 
@@ -47,6 +49,8 @@ export interface Health {
   device: string | null;
   vram_total: number | null;
   vram_free: number | null;
+  queue: string;
+  instances: { name: string; url: string; comfy: boolean; job_id: string | null }[];
 }
 
 export class ApiError extends Error {
@@ -84,6 +88,12 @@ export const api = {
     if (!res.ok) throw new ApiError(typeof data?.detail === "string" ? data.detail : `上傳失敗（${res.status}）`);
     return data as { name: string; url: string };
   },
+  /** 把生成好的圖放進 ComfyUI 的 input 資料夾，回傳可以填進圖片欄位的檔名 */
+  jobAsInput: (id: string) =>
+    request<{ name: string; url: string }>(`/api/jobs/${id}/as-input`, { method: "POST" }),
+  deleteJob: (id: string) => request<{ deleted: string[] }>(`/api/jobs/${id}`, { method: "DELETE" }),
+  clearJobs: (statuses: JobStatus[]) =>
+    request<{ deleted: string[] }>("/api/jobs/clear", { method: "POST", body: JSON.stringify({ statuses }) }),
   cancelJob: (id: string) => request<{ ok: boolean }>(`/api/jobs/${id}/cancel`, { method: "POST" }),
 };
 
@@ -91,11 +101,13 @@ export interface JobEvents {
   onJob: (job: Job) => void;
   /** 取樣中的低解析度預覽（data URL），只有即時推播，不會存檔 */
   onPreview: (jobId: string, image: string) => void;
+  /** 任務被刪除（可能是別的分頁刪的） */
+  onDeleted: (jobIds: string[]) => void;
   onConnection: (up: boolean) => void;
 }
 
 /** 訂閱任務事件；斷線會自動重連。回傳取消訂閱的函式。 */
-export function subscribeJobs({ onJob, onPreview, onConnection }: JobEvents): () => void {
+export function subscribeJobs({ onJob, onPreview, onDeleted, onConnection }: JobEvents): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
   let retry: number | undefined;
@@ -108,6 +120,7 @@ export function subscribeJobs({ onJob, onPreview, onConnection }: JobEvents): ()
       const event = JSON.parse(e.data);
       if (event.type === "job") onJob(event.job);
       else if (event.type === "preview") onPreview(event.job_id, event.image);
+      else if (event.type === "deleted") onDeleted(event.job_ids);
     };
     ws.onclose = () => {
       onConnection(false);

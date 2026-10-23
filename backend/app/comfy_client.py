@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -102,13 +101,18 @@ class ComfyClient:
         return websockets.connect(ws_url, max_size=None)
 
     @staticmethod
-    async def iter_events(ws: Any) -> AsyncIterator[dict[str, Any]]:
-        """產出 JSON 事件。取樣中的預覽圖（二進位訊息）轉成 type="preview" 的事件。"""
-        async for message in ws:
+    async def next_event(ws: Any) -> dict[str, Any]:
+        """等下一個事件。取樣中的預覽圖（二進位訊息）轉成 type="preview" 的事件。
+
+        直接用 ws.recv() 而不是 async generator：recv() 可以安全地被逾時取消，
+        worker 才能在太久沒消息時改用 HTTP 查詢任務狀態。連線關閉時丟出 websockets.ConnectionClosed。
+        """
+        while True:
+            message = await ws.recv()
             if isinstance(message, str):
-                yield json.loads(message)
-            elif preview := parse_preview(message):
-                yield preview
+                return json.loads(message)
+            if preview := parse_preview(message):
+                return preview
 
     async def prompt_state(self, prompt_id: str) -> str:
         """回傳 "done"、"error"、"pending"（還在佇列或執行中）或 "missing"（ComfyUI 不認得）。"""

@@ -1,0 +1,28 @@
+id: realesrgan_upscale
+name: 高清放大
+description: 用 Real-ESRGAN 把圖片放大並補回細節，不會改變內容。
+order: 3
+heading: 讓哪張圖變清晰？
+action: 開始放大
+workflow: workflow_api.json
+
+fields:
+  - key: image
+    label: 要放大的圖
+    help: 支援 PNG、JPG、WebP，最大 20 MB。
+    type: image
+    required: true
+    targets: ["1.image"]
+
+  - key: scale
+    label: 放大倍數
+    help: Real-ESRGAN 先放大 4 倍，選 2 倍時再縮回一半，邊緣會比直接放大 2 倍更乾淨。
+    type: choice
+    default: x2
+    options:
+      - value: x2
+        label: 2 倍
+        set: { "4.scale_by": 0.5 }
+      - value: x4
+        label: 4 倍
+        set: { "4.scale_by": 1.0 }

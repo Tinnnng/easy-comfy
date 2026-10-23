@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import httpx
+import websockets
 
 from app.comfy_client import ComfyClient
 from app.db import Database, Job, JobStatus
@@ -17,9 +18,12 @@ PROMPT_ID = "p1"
 
 
 class FakeWebSocket:
-    def __init__(self, messages, owner=None):
-        self.messages = messages
+    """依序回傳 messages；用完後關閉連線，或 hang=True 時一直不回應（模擬事件遺失）。"""
+
+    def __init__(self, messages, owner=None, hang=False):
+        self.messages = list(messages)
         self.owner = owner
+        self.hang = hang
 
     async def __aenter__(self):
         return self
@@ -27,12 +31,16 @@ class FakeWebSocket:
     async def __aexit__(self, *exc):
         return False
 
-    async def __aiter__(self):
-        for m in self.messages:
-            # 送出完成事件之後，ComfyUI 的 history 才會有這個任務
-            if self.owner and isinstance(m, str) and "execution_success" in m:
-                self.owner.history_done = True
-            yield m
+    async def recv(self):
+        if not self.messages:
+            if self.hang:
+                await asyncio.Event().wait()
+            raise websockets.ConnectionClosedOK(None, None)
+        m = self.messages.pop(0)
+        # 送出完成事件之後，ComfyUI 的 history 才會有這個任務
+        if self.owner and isinstance(m, str) and "execution_success" in m:
+            self.owner.history_done = True
+        return m
 
 
 class FakeComfy(ComfyClient):
@@ -150,3 +158,13 @@ def test_gives_up_after_repeated_disconnects(tmp_path):
     job, _ = run_job(tmp_path, None, comfy)
     assert job.status == JobStatus.failed
     assert "重試" in job.error
+
+
+def test_missed_completion_event_is_recovered_by_polling(tmp_path, monkeypatch):
+    # 連線還在，但完成事件在路上遺失了：閒置一段時間後改用 HTTP 查到任務已完成
+    monkeypatch.setattr(Worker, "IDLE_CHECK_SECONDS", 0.05)
+    comfy = FakeComfy([[event("progress", value=4, max=4)]], history_done=True)
+    comfy.connect_events = lambda: FakeWebSocket([event("progress", value=4, max=4)], comfy, hang=True)
+    job, _ = run_job(tmp_path, None, comfy)
+    assert job.status == JobStatus.succeeded
+    assert job.images

@@ -101,7 +101,7 @@ def test_no_style_leaves_prompt_untouched(flux):
 
 
 def test_templates_are_ordered_for_beginners():
-    assert list(load_templates(TEMPLATES_DIR))[0] == "flux_schnell_t2i"
+    assert list(load_templates(TEMPLATES_DIR)) == ["flux_schnell_t2i", "flux_schnell_i2i", "realesrgan_upscale"]
 
 
 def test_img2img_strengths_hit_distinct_noise_levels():

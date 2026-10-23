@@ -1,0 +1,38 @@
+[
+  {
+    "backend": "sqlite",
+    "instances": 4,
+    "jobs": 40,
+    "gen_ms": 1000,
+    "makespan_s": 10.19,
+    "throughput_jobs_per_min": 235.5,
+    "overhead_pct": 1.9,
+    "wait_p50_s": 4.58,
+    "wait_p95_s": 9.12,
+    "failed": 0,
+    "per_instance": {
+      "comfy0": 10,
+      "comfy1": 10,
+      "comfy2": 10,
+      "comfy3": 10
+    }
+  },
+  {
+    "backend": "redis",
+    "instances": 4,
+    "jobs": 40,
+    "gen_ms": 1000,
+    "makespan_s": 10.19,
+    "throughput_jobs_per_min": 235.4,
+    "overhead_pct": 1.9,
+    "wait_p50_s": 4.54,
+    "wait_p95_s": 9.08,
+    "failed": 0,
+    "per_instance": {
+      "comfy0": 10,
+      "comfy1": 10,
+      "comfy2": 10,
+      "comfy3": 10
+    }
+  }
+]

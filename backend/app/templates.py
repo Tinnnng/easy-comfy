@@ -70,6 +70,10 @@ class Template(BaseModel):
     id: str
     name: str
     description: str = ""
+    # 表單上方的大標題
+    heading: str = "你想看到什麼畫面？"
+    # 送出按鈕上的字
+    action: str = "開始生成"
     # 前端分頁的排列順序，數字小的在前面
     order: int = 100
     fields: list[TemplateField]
@@ -81,6 +85,8 @@ class Template(BaseModel):
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "heading": self.heading,
+            "action": self.action,
             "fields": [
                 f.model_dump(include={"key", "label", "type", "help", "required", "advanced",
                                       "default", "min", "max", "max_length", "translate"})

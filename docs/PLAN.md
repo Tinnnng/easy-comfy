@@ -127,14 +127,18 @@ fields:
 - [ ] 提示詞改寫助理（把簡短描述擴寫成細節完整的 prompt）
 - [x] 風格預設（7 種畫風 → 自動接上英文風格詞；LoRA 待下載模型後再加）
 - [x] 圖生圖模板與圖片上傳（拖放、點擊、貼上；三檔改變程度經實測校準）
-- [ ] 高清放大模板（需要先下載 ESRGAN 類放大模型）
+- [x] 高清放大模板（Real-ESRGAN x4plus，2 倍／4 倍）
+- [x] 刪除單張紀錄、一鍵清除失敗與取消的紀錄
 - [x] 批次生成（一次 1–4 張，種子連號可重現）
 - [ ] 任務優先權（目前單人使用，等多人共用時再做）
 
 ### Phase 4：工程亮點
-- [ ] 佇列後端可切換 Redis，並做壓測比較（等待時間、吞吐量）
-- [ ] 多台 ComfyUI 負載分配
-- [ ] Docker Compose 一鍵啟動
+- [x] 佇列後端可切換 SQLite／Redis，壓測腳本與 SQLite 結果（發現並修正 journal 造成的排程成本，見 BENCHMARK.md）
+- [x] Redis 實測數據（單機與 SQLite + WAL 相當，見 BENCHMARK.md）
+- [x] 多台 ComfyUI 負載分配（原子搶單、原圖自動同步）
+- [x] Docker Compose 設定（Redis + 後端 + nginx 前端）
+- [x] Docker Compose 實際驗證（經 nginx 跑完翻譯、文生圖、上傳、圖生圖、刪除）
+- [x] WebSocket 事件看門狗：30 秒沒事件就改用 HTTP 查詢狀態（Compose 首次啟動時實際遇到完成事件遺失）
 - [ ] README：Demo GIF、架構圖、量測數據
 
 ## 7. 技術選型

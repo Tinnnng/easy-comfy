@@ -56,49 +56,57 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
         submit();
       }}
     >
-      {lead && (
-        <div className="lead">
+      <div className="lead">
+        {lead ? (
           <label htmlFor={`f-${lead.key}`} className="lead-label">
-            <Scramble text={images.length ? "你想把它變成什麼？" : "你想看到什麼畫面？"} />
+            <Scramble text={template.heading} />
           </label>
-          {images.map((f) => (
-            <Field key={f.key} field={f} value={values[f.key]} onChange={(v) => set(f.key, v)} />
-          ))}
-          <div className="prompt-shell">
-            <textarea
-              id={`f-${lead.key}`}
-              className="lead-input"
-              rows={3}
-              required
-              maxLength={lead.max_length ?? undefined}
-              placeholder="例如：懸崖上的燈塔，黃昏，薄霧，油畫風格"
-              aria-describedby="lead-help"
-              value={leadText}
-              onChange={(e) => set(lead.key, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-            />
-            <div className="prompt-foot" aria-hidden>
-              <span className={willTranslate ? "lang is-translating" : "lang"}>
-                {willTranslate ? "中 → EN" : "EN"}
-              </span>
-              <span>
-                {leadText.length}
-                {lead.max_length ? ` / ${lead.max_length}` : ""}
-              </span>
+        ) : (
+          <h1 className="lead-label">
+            <Scramble text={template.heading} />
+          </h1>
+        )}
+        {images.map((f) => (
+          <Field key={f.key} field={f} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+        ))}
+        {lead && (
+          <>
+            <div className="prompt-shell">
+              <textarea
+                id={`f-${lead.key}`}
+                className="lead-input"
+                rows={3}
+                required
+                maxLength={lead.max_length ?? undefined}
+                placeholder="例如：懸崖上的燈塔，黃昏，薄霧，油畫風格"
+                aria-describedby="lead-help"
+                value={leadText}
+                onChange={(e) => set(lead.key, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
+              />
+              <div className="prompt-foot" aria-hidden>
+                <span className={willTranslate ? "lang is-translating" : "lang"}>
+                  {willTranslate ? "中 → EN" : "EN"}
+                </span>
+                <span>
+                  {leadText.length}
+                  {lead.max_length ? ` / ${lead.max_length}` : ""}
+                </span>
+              </div>
             </div>
-          </div>
-          <p id="lead-help" className="lead-help">
-            {willTranslate
-              ? "偵測到中文，送出時會先自動翻成英文，模型只看得懂英文。"
-              : "中文或英文都可以。寫出主體、場景、光線和畫風，效果最好。"}
-          </p>
-        </div>
-      )}
+            <p id="lead-help" className="lead-help">
+              {willTranslate
+                ? "偵測到中文，送出時會先自動翻成英文，模型只看得懂英文。"
+                : "中文或英文都可以。寫出主體、場景、光線和畫風，效果最好。"}
+            </p>
+          </>
+        )}
+      </div>
 
       <div className="options">
         {basic.map((f) => (
@@ -127,7 +135,7 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
 
       <div className="submit-row">
         <button type="submit" className="cta" disabled={submitting} {...magnetic}>
-          <span>{submitting ? "送出中" : count > 1 ? `生成 ${count} 張` : "開始生成"}</span>
+          <span>{submitting ? "送出中" : count > 1 ? `${template.action} ${count} 張` : template.action}</span>
         </button>
         <fieldset className="count">
           <legend className="visually-hidden">一次生成幾張</legend>
