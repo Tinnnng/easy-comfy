@@ -1,0 +1,53 @@
+id: flux_schnell_t2i
+name: 文生圖（Flux 快速）
+description: 輸入一段英文畫面描述，約 10–30 秒產生一張圖。適合第一次嘗試。
+workflow: workflow_api.json
+
+fields:
+  - key: prompt
+    label: 畫面描述
+    help: 用英文描述你想要的畫面，例如 "a cat sitting on a windowsill, sunset, watercolor"
+    type: text
+    required: true
+    max_length: 2000
+    targets: ["4.text"]
+
+  - key: size
+    label: 尺寸
+    type: choice
+    default: square
+    options:
+      - value: square
+        label: 方形 1024×1024
+        set: { "6.width": 1024, "6.height": 1024 }
+      - value: portrait
+        label: 直式 832×1216
+        set: { "6.width": 832, "6.height": 1216 }
+      - value: landscape
+        label: 橫式 1216×832
+        set: { "6.width": 1216, "6.height": 832 }
+
+  - key: quality
+    label: 細節程度
+    help: 步數越多細節越多，但越慢。Flux schnell 4 步通常就夠了。
+    type: choice
+    default: normal
+    advanced: true
+    options:
+      - value: fast
+        label: 快速（2 步）
+        set: { "7.steps": 2 }
+      - value: normal
+        label: 標準（4 步）
+        set: { "7.steps": 4 }
+      - value: fine
+        label: 精細（8 步）
+        set: { "7.steps": 8 }
+
+  - key: seed
+    label: 隨機種子
+    help: -1 代表每次隨機。想重現同一張圖時，填入歷史紀錄裡的種子。
+    type: seed
+    default: -1
+    advanced: true
+    targets: ["7.seed"]
