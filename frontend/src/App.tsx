@@ -139,10 +139,12 @@ export function App() {
 
   function reuse(job: Job, keepSeed: boolean) {
     withTransition(() => setLoupeId(null));
+    // 用使用者當初寫的原文（中文）帶回去；再翻一次會命中後端快取，不耗額度
+    const values = { ...job.params, ...job.sources };
     if (!keepSeed) {
-      void create(job.template_id, { ...job.params, seed: -1 });
+      void create(job.template_id, { ...values, seed: -1 });
     } else {
-      setForm((f) => ({ templateId: job.template_id, values: { ...job.params }, version: (f?.version ?? 0) + 1 }));
+      setForm((f) => ({ templateId: job.template_id, values, version: (f?.version ?? 0) + 1 }));
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }

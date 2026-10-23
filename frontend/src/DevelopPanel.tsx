@@ -36,7 +36,7 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
   const finalSrc = job?.status === "succeeded" && job.images[0] ? `/outputs/${job.images[0]}` : null;
   const step = status === "succeeded" ? totalSteps : Math.round(progress * totalSteps);
   const elapsed = useElapsed(job);
-  const shownProgress = useTween(status === "succeeded" ? 1 : progress);
+  const shownProgress = useTween(status === "succeeded" ? 1 : progress, job?.id);
 
   let src: string | null = null;
   let noise = 1;
@@ -52,6 +52,7 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
   }
 
   const prompt = String(job?.params.prompt ?? "");
+  const translatedFrom = job?.sources?.prompt;
   const message =
     status === "empty" ? "寫下畫面描述並按「開始生成」，雜訊會在這裡收斂成圖片。"
     : status === "queued" ? (job?.queue_position ? `排隊中，前面還有 ${job.queue_position} 張` : "下一張就輪到你")
@@ -114,7 +115,7 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
 
       <div className="develop-foot">
         <p className="develop-status">
-          {status === "running" && `去雜訊中，第 ${Math.max(1, step)} 步`}
+          {status === "running" && (step > 0 ? `去雜訊中，第 ${step} 步` : "載入模型與編碼描述中")}
           {status === "queued" && "等待顯示卡"}
           {status === "succeeded" && (recent ? "最近完成的一張，點畫面可以放大" : "完成，點畫面可以放大")}
           {status === "failed" && "這張沒有成功"}
@@ -126,6 +127,13 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
           </button>
         )}
       </div>
+
+      {translatedFrom && !recent && (
+        <div className="translation">
+          <span className="translation-label">已自動翻成英文送給模型</span>
+          <p lang="en">{prompt}</p>
+        </div>
+      )}
     </section>
   );
 }

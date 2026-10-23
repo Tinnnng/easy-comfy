@@ -11,6 +11,7 @@ export interface TemplateField {
   min: number | null;
   max: number | null;
   max_length: number | null;
+  translate: boolean;
   options: { value: string; label: string }[];
 }
 
@@ -31,6 +32,8 @@ export interface Job {
   progress: number;
   error: string | null;
   images: string[];
+  /** 翻譯前的原文；params 裡是實際送給模型的英文 */
+  sources: Record<string, string>;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

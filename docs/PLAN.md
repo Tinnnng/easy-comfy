@@ -123,7 +123,8 @@ fields:
 - [ ] GitHub Actions CI（pytest + 前端 build）
 
 ### Phase 3：新手體驗
-- [ ] 中文提示詞助理（LLM 把中文描述轉成英文 prompt）
+- [x] 中文描述自動翻譯（MyMemory 免費 API，可改用 Google Cloud Translation）
+- [ ] 提示詞改寫助理（把簡短描述擴寫成細節完整的 prompt）
 - [ ] 風格預設（動漫／寫實／水彩 → prompt 片段 + LoRA）
 - [ ] 圖生圖、高清放大模板（需上傳圖片：ComfyUI `/upload/image`）
 - [ ] 任務優先權、批次生成

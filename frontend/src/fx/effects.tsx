@@ -38,12 +38,14 @@ export function Scramble({ text, duration = 1100, className }: { text: string; d
   );
 }
 
-/** 數字平滑地滾到目標值（遙測數字用）。 */
-export function useTween(value: number, speed = 0.15) {
+/** 數字平滑地滾到目標值（遙測數字用）。resetKey 改變時直接跳到新值，不從舊數字滾過去。 */
+export function useTween(value: number, resetKey?: string, speed = 0.15) {
   const [shown, setShown] = useState(value);
   const current = useRef(value);
+  const lastKey = useRef(resetKey);
   useEffect(() => {
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || lastKey.current !== resetKey) {
+      lastKey.current = resetKey;
       current.current = value;
       setShown(value);
       return;
@@ -57,7 +59,7 @@ export function useTween(value: number, speed = 0.15) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [value, speed]);
+  }, [value, resetKey, speed]);
   return shown;
 }
 

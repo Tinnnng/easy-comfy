@@ -23,7 +23,9 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
 
   useEffect(() => setCopied(false), [job.id]);
 
-  const prompt = typeof job.params.prompt === "string" ? job.params.prompt : "";
+  const sent = typeof job.params.prompt === "string" ? job.params.prompt : "";
+  const source = job.sources?.prompt;
+  const prompt = source ?? sent;
   const image = job.images[0];
   const seconds =
     job.started_at && job.finished_at
@@ -98,6 +100,12 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
           </div>
 
           <p className="loupe-prompt">{prompt}</p>
+          {source && (
+            <div className="translation">
+              <span className="translation-label">自動翻譯後送給模型</span>
+              <p lang="en">{sent}</p>
+            </div>
+          )}
 
           <dl className="loupe-settings">
             {settings.map((s) => (

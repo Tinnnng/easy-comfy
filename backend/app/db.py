@@ -35,6 +35,8 @@ class Job(SQLModel, table=True):
     error: str | None = None
     prompt_id: str | None = None
     images: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    # 翻譯前的原文，例如 {"prompt": "一隻貓"}；params 裡放的是實際送給模型的英文
+    sources: dict[str, str] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow, index=True)
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -46,6 +48,14 @@ class Database:
 
     def init(self) -> None:
         SQLModel.metadata.create_all(self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """create_all 不會替舊資料表補欄位，這裡補上之後才新增的欄位。"""
+        with self.engine.begin() as conn:
+            existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(job)")}
+            if "sources" not in existing:
+                conn.exec_driver_sql("ALTER TABLE job ADD COLUMN sources JSON DEFAULT '{}'")
 
     def session(self) -> Session:
         return Session(self.engine, expire_on_commit=False)

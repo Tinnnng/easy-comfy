@@ -8,6 +8,7 @@
 ## 功能
 
 - **模板化工作流**：把 ComfyUI 匯出的 API JSON 搭配一份 YAML，就能變成新手表單
+- **中文描述自動翻譯**：Flux 的文字編碼器幾乎只看得懂英文，含中文的描述會先翻成英文再送出；紀錄同時保留原文和實際送出的英文，翻譯失敗時會明確告知，不會把中文直接送進模型
 - **送單前檢查**：比對 ComfyUI `/object_info`，缺模型或缺節點時直接告訴使用者，不必等排隊排到才失敗
 - **持久化任務佇列**：任務存在 SQLite，服務重啟後還在；8GB 顯卡一次只跑一個任務
 - **即時去雜訊預覽**：解析 ComfyUI WebSocket 的二進位預覽影格，每一步都推到前端，由 WebGL shader 呈現從熱圖雜訊溶解成畫面的過程
@@ -55,6 +56,20 @@ ComfyUI 不在預設位址時，在 `backend/.env` 設定：
 ```
 EASYCOMFY_COMFY_URL=http://127.0.0.1:8188
 ```
+
+### 中文翻譯
+
+預設使用免費的 [MyMemory](https://mymemory.translated.net/doc/spec.php) 翻譯 API，不需要註冊（匿名每天約 5,000 字元）。也可以在 `backend/.env` 改用其他設定：
+
+```
+# 改用 Google Cloud Translation（需要已啟用帳單的 Google Cloud 專案）
+EASYCOMFY_GOOGLE_API_KEY=你的金鑰
+
+# 或者提供 email 給 MyMemory，把每日額度提高到約 50,000 字元
+EASYCOMFY_MYMEMORY_EMAIL=you@example.com
+```
+
+同一句話的翻譯會快取在記憶體裡，重新生成不會重複耗用額度。
 
 ## 新增模板
 

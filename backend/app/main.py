@@ -15,6 +15,7 @@ from .config import Settings, settings as default_settings
 from .db import Database, Job
 from .events import EventBus
 from .templates import ParamError, load_templates
+from .translate import TranslateError, Translator, create_translator, translate_fields
 from .worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -26,7 +27,7 @@ class JobCreate(BaseModel):
     params: dict[str, Any] = {}
 
 
-def create_app(settings: Settings = default_settings) -> FastAPI:
+def create_app(settings: Settings = default_settings, translator: Translator | None = None) -> FastAPI:
     settings.outputs_dir.mkdir(parents=True, exist_ok=True)
     templates = load_templates(settings.templates_dir)
     db = Database(settings.db_url)
@@ -40,12 +41,17 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         comfy = ComfyClient(settings.comfy_url, client_id=f"easycomfy-{uuid.uuid4().hex[:8]}")
         worker = Worker(db, comfy, bus, templates, settings.outputs_dir, settings.job_timeout)
         app.state.comfy, app.state.worker = comfy, worker
+        translate_http = httpx.AsyncClient(timeout=15)
+        app.state.translator = translator or create_translator(
+            translate_http, settings.google_api_key, settings.mymemory_email)
         if settings.start_worker:
             worker.start()
-        log.info("已載入模板：%s；ComfyUI：%s", ", ".join(templates), settings.comfy_url)
+        log.info("已載入模板：%s；ComfyUI：%s；翻譯：%s",
+                 ", ".join(templates), settings.comfy_url, app.state.translator.name)
         yield
         await worker.stop()
         await comfy.close()
+        await translate_http.aclose()
 
     app = FastAPI(title="EasyComfy", lifespan=lifespan)
     app.mount("/outputs", StaticFiles(directory=settings.outputs_dir), name="outputs")
@@ -78,6 +84,12 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         except ParamError as e:
             raise HTTPException(422, {"field": e.field, "message": e.message}) from None
 
+        # 模型只看得懂英文，中文描述先翻譯；失敗就明講，不偷偷把中文送進去
+        try:
+            resolved, sources = await translate_fields(template, resolved, app.state.translator)
+        except TranslateError as e:
+            raise HTTPException(503, f"自動翻譯失敗（{e}），請改用英文描述或稍後再試") from None
+
         # 送單前先確認模型、節點都在，免得排隊排了半天才失敗
         try:
             problems = await app.state.comfy.validate(template.build_workflow(resolved))
@@ -86,7 +98,7 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         if problems:
             raise HTTPException(409, {"message": "ComfyUI 缺少這個模板需要的東西", "problems": problems})
 
-        job = db.add(Job(template_id=template.id, params=resolved))
+        job = db.add(Job(template_id=template.id, params=resolved, sources=sources))
         app.state.worker.notify()
         out = with_position(job)
         bus.publish({"type": "job", "job": out})

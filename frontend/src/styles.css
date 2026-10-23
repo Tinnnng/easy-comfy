@@ -154,6 +154,20 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 var(--gutter) 120px; }
   padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 0.68rem;
 }
 .lead-help { font-size: var(--t-sm); color: var(--muted); max-width: 36em; }
+.prompt-foot .lang { transition: color 0.3s, border-color 0.3s, box-shadow 0.3s; }
+.prompt-foot .lang.is-translating {
+  color: var(--flare); border-color: var(--ember);
+  box-shadow: 0 0 12px -2px rgba(249, 142, 9, 0.6);
+}
+
+/* 自動翻譯結果：讓使用者看到模型實際收到的英文 */
+.translation {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 14px; border-radius: 10px;
+  border-left: 2px solid var(--ember); background: rgba(249, 142, 9, 0.06);
+}
+.translation-label { font-size: 0.7rem; color: var(--muted); }
+.translation p { font-family: var(--mono); font-size: var(--t-xs); line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
 
 .options { display: flex; flex-wrap: wrap; gap: 24px 40px; }
 .field { display: flex; flex-direction: column; gap: 10px; border: 0; margin: 0; padding: 0; min-width: 0; }

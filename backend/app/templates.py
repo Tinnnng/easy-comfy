@@ -40,6 +40,8 @@ class TemplateField(BaseModel):
     help: str | None = None
     required: bool = False
     advanced: bool = False
+    # 含中文時先翻成英文再送給模型
+    translate: bool = False
     default: Any = None
     targets: list[str] = Field(default_factory=list)
     options: list[ChoiceOption] = Field(default_factory=list)
@@ -74,7 +76,7 @@ class Template(BaseModel):
             "description": self.description,
             "fields": [
                 f.model_dump(include={"key", "label", "type", "help", "required", "advanced",
-                                      "default", "min", "max", "max_length"})
+                                      "default", "min", "max", "max_length", "translate"})
                 | {"options": [{"value": o.value, "label": o.label} for o in f.options]}
                 for f in self.fields
             ],

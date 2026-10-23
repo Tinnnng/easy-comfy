@@ -19,6 +19,9 @@ function defaults(template: Template, initial?: Values): Values {
   return values;
 }
 
+/** 和後端 translate.py 的判斷一致：含中日韓表意文字就需要翻譯 */
+export const hasChinese = (text: string) => /[㐀-䶿一-鿿豈-﫿]/.test(text);
+
 /** 從「方形 1024×1024」這類選項文字取出長寬，用來畫比例示意 */
 function dimensions(label: string): [number, number] | null {
   const m = label.match(/(\d+)\s*[×x]\s*(\d+)/);
@@ -36,6 +39,8 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
   const lead = template.fields.find((f) => f.type === "text" && f.required);
   const basic = template.fields.filter((f) => !f.advanced && f !== lead);
   const advanced = template.fields.filter((f) => f.advanced && f !== lead);
+  const leadText = lead ? String(values[lead.key] ?? "") : "";
+  const willTranslate = !!lead?.translate && hasChinese(leadText);
 
   const submit = () => onSubmit(values);
 
@@ -53,31 +58,38 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
             <Scramble text="你想看到什麼畫面？" />
           </label>
           <div className="prompt-shell">
-          <textarea
-            id={`f-${lead.key}`}
-            className="lead-input"
-            rows={3}
-            required
-            maxLength={lead.max_length ?? undefined}
-            placeholder="a lighthouse on a cliff at dusk, soft fog, oil painting"
-            value={String(values[lead.key] ?? "")}
-            onChange={(e) => set(lead.key, e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
+            <textarea
+              id={`f-${lead.key}`}
+              className="lead-input"
+              rows={3}
+              required
+              maxLength={lead.max_length ?? undefined}
+              placeholder="例如：懸崖上的燈塔，黃昏，薄霧，油畫風格"
+              aria-describedby="lead-help"
+              value={leadText}
+              onChange={(e) => set(lead.key, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
             <div className="prompt-foot" aria-hidden>
-              <span>EN</span>
+              <span className={willTranslate ? "lang is-translating" : "lang"}>
+                {willTranslate ? "中 → EN" : "EN"}
+              </span>
               <span>
-                {String(values[lead.key] ?? "").length}
+                {leadText.length}
                 {lead.max_length ? ` / ${lead.max_length}` : ""}
               </span>
             </div>
           </div>
-          <p className="lead-help">目前只看得懂英文描述。寫出主體、場景、光線和畫風，效果最好。</p>
+          <p id="lead-help" className="lead-help">
+            {willTranslate
+              ? "偵測到中文，送出時會先自動翻成英文，模型只看得懂英文。"
+              : "中文或英文都可以。寫出主體、場景、光線和畫風，效果最好。"}
+          </p>
         </div>
       )}
 

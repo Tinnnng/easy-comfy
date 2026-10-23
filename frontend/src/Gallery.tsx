@@ -23,7 +23,7 @@ export function Gallery({ jobs, numberOf, openId, onOpen }: Props) {
     <ol className="gallery">
       {jobs.map((job) => {
         const n = numberOf(job);
-        const prompt = typeof job.params.prompt === "string" ? job.params.prompt : "";
+        const prompt = job.sources?.prompt ?? (typeof job.params.prompt === "string" ? job.params.prompt : "");
         const image = job.images[0];
         const seconds =
           job.started_at && job.finished_at

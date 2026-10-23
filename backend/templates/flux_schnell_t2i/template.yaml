@@ -6,9 +6,10 @@ workflow: workflow_api.json
 fields:
   - key: prompt
     label: 畫面描述
-    help: 用英文描述你想要的畫面，例如 "a cat sitting on a windowsill, sunset, watercolor"
+    help: 中文或英文都可以，中文會先自動翻成英文。寫出主體、場景、光線和畫風，效果最好。
     type: text
     required: true
+    translate: true
     max_length: 2000
     targets: ["4.text"]
 
