@@ -41,6 +41,8 @@ export interface Health {
   ok: boolean;
   comfy: boolean;
   device: string | null;
+  vram_total: number | null;
+  vram_free: number | null;
 }
 
 export class ApiError extends Error {

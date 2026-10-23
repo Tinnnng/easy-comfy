@@ -1,5 +1,8 @@
 import { useId, useState } from "react";
 import type { Template, TemplateField } from "./api";
+import { magneticHandlers, Scramble } from "./fx/effects";
+
+const magnetic = magneticHandlers();
 
 type Values = Record<string, unknown>;
 
@@ -47,8 +50,9 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
       {lead && (
         <div className="lead">
           <label htmlFor={`f-${lead.key}`} className="lead-label">
-            你想看到什麼畫面？
+            <Scramble text="你想看到什麼畫面？" />
           </label>
+          <div className="prompt-shell">
           <textarea
             id={`f-${lead.key}`}
             className="lead-input"
@@ -65,6 +69,14 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
               }
             }}
           />
+            <div className="prompt-foot" aria-hidden>
+              <span>EN</span>
+              <span>
+                {String(values[lead.key] ?? "").length}
+                {lead.max_length ? ` / ${lead.max_length}` : ""}
+              </span>
+            </div>
+          </div>
           <p className="lead-help">目前只看得懂英文描述。寫出主體、場景、光線和畫風，效果最好。</p>
         </div>
       )}
@@ -95,8 +107,8 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
       )}
 
       <div className="submit-row">
-        <button type="submit" className="cta" disabled={submitting}>
-          {submitting ? "送出中" : "開始生成"}
+        <button type="submit" className="cta" disabled={submitting} {...magnetic}>
+          <span>{submitting ? "送出中" : "開始生成"}</span>
         </button>
         <span className="kbd-hint" aria-hidden>
           <kbd>Ctrl</kbd> + <kbd>Enter</kbd>
@@ -172,7 +184,7 @@ function Field({ field: f, value, onChange }: { field: TemplateField; value: unk
             onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
           />
           {f.type === "seed" && (
-            <button type="button" className="quiet" onClick={() => onChange(-1)} disabled={value === -1}>
+            <button type="button" className="ghost" onClick={() => onChange(-1)} disabled={value === -1}>
               每次隨機
             </button>
           )}

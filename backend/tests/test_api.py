@@ -15,7 +15,9 @@ def client(tmp_path):
 
 
 def test_health_reports_comfy_offline(client):
-    assert client.get("/api/health").json() == {"ok": True, "comfy": False, "device": None}
+    assert client.get("/api/health").json() == {
+        "ok": True, "comfy": False, "device": None, "vram_total": None, "vram_free": None,
+    }
 
 
 def test_templates_hide_workflow(client):

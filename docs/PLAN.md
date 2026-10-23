@@ -115,7 +115,7 @@ fields:
 - [x] 模板引擎單元測試
 - [x] 即時預覽（ComfyUI 二進位預覽影格 → 前端顯影效果）
 - [x] Worker 整合測試（假的 ComfyUI WebSocket + httpx MockTransport）
-- [x] 前端「看片燈箱」視覺：印樣式生成紀錄、放大鏡、深色模式、手機版
+- [x] 前端「潛空間實驗室」視覺：WebGL 雜訊場與去雜訊顯影、取樣遙測與 VRAM、View Transitions、手機版
 
 ### Phase 2：穩定性
 - [ ] ComfyUI 斷線自動重連、任務逾時

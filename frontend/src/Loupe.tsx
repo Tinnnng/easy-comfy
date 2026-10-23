@@ -1,21 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Job, Template } from "./api";
 
 interface Props {
   job: Job;
   number: number;
   template?: Template;
-  onClose: () => void;
+  onRequestClose: () => void;
   onStep: (direction: -1 | 1) => void;
   onReuse: (job: Job, keepSeed: boolean) => void;
 }
 
-/** 放大鏡：單張檢視、看當時的設定、再生成。 */
-export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props) {
+/** 放大檢視：單張大圖、當時的設定、再生成。開關由 App 包在 View Transition 裡。 */
+export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  // 要在 View Transition 擷取新畫面之前就開好，所以用 layout effect
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
   }, []);
@@ -51,10 +52,13 @@ export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props
       ref={ref}
       className="loupe"
       aria-labelledby="loupe-title"
-      onClose={onClose}
+      onCancel={(e) => {
+        // Esc：先攔下來，交給 App 用轉場關閉
+        e.preventDefault();
+        onRequestClose();
+      }}
       onClick={(e) => {
-        // 點背景關閉
-        if (e.target === e.currentTarget) ref.current?.close();
+        if (e.target === e.currentTarget) onRequestClose();
       }}
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") onStep(-1);
@@ -64,7 +68,12 @@ export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props
       <div className="loupe-inner">
         <figure className="loupe-figure">
           {image ? (
-            <img key={image} src={`/outputs/${image}`} alt={prompt} />
+            <img
+              key={image}
+              src={`/outputs/${image}`}
+              alt={prompt}
+              style={{ viewTransitionName: `shot-${job.id}` }}
+            />
           ) : (
             <div className="loupe-blank">{job.error ?? "這張沒有圖片"}</div>
           )}
@@ -72,7 +81,9 @@ export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props
 
         <div className="loupe-side">
           <div className="loupe-head">
-            <h2 id="loupe-title">第 {number} 張</h2>
+            <h2 id="loupe-title">
+              <span className="loupe-index">#{String(number).padStart(3, "0")}</span>
+            </h2>
             <div className="loupe-nav">
               <button className="icon" onClick={() => onStep(-1)} aria-label="上一張（較新）">
                 <Arrow dir="left" />
@@ -80,7 +91,7 @@ export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props
               <button className="icon" onClick={() => onStep(1)} aria-label="下一張（較舊）">
                 <Arrow dir="right" />
               </button>
-              <button className="icon" onClick={() => ref.current?.close()} aria-label="關閉">
+              <button className="icon" onClick={onRequestClose} aria-label="關閉">
                 <Cross />
               </button>
             </div>
@@ -111,14 +122,14 @@ export function Loupe({ job, number, template, onClose, onStep, onReuse }: Props
           </dl>
 
           <div className="loupe-actions">
-            <button className="cta" onClick={() => onReuse(job, false)}>
-              換個種子再生成
+            <button className="cta cta-block" onClick={() => onReuse(job, false)}>
+              <span>換個種子再生成</span>
             </button>
-            <button className="quiet" onClick={() => onReuse(job, true)}>
+            <button className="ghost" onClick={() => onReuse(job, true)}>
               把這組設定帶回編輯
             </button>
             {image && (
-              <a className="quiet" href={`/outputs/${image}`} download={`easycomfy-${number}.png`}>
+              <a className="ghost" href={`/outputs/${image}`} download={`easycomfy-${number}.png`}>
                 下載圖片
               </a>
             )}

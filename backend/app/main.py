@@ -58,10 +58,11 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     async def health() -> dict[str, Any]:
         try:
             stats = await app.state.comfy.ping()
-            devices = stats.get("devices", [])
-            return {"ok": True, "comfy": True, "device": devices[0]["name"] if devices else None}
         except (httpx.HTTPError, OSError):
-            return {"ok": True, "comfy": False, "device": None}
+            return {"ok": True, "comfy": False, "device": None, "vram_total": None, "vram_free": None}
+        device = (stats.get("devices") or [{}])[0]
+        return {"ok": True, "comfy": True, "device": device.get("name"),
+                "vram_total": device.get("vram_total"), "vram_free": device.get("vram_free")}
 
     @app.get("/api/templates")
     def list_templates() -> list[dict[str, Any]]:

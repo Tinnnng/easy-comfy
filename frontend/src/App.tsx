@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { api, ApiError, subscribeJobs, type Health, type Job, type Template } from "./api";
 import { Composer } from "./Composer";
-import { ContactSheet } from "./ContactSheet";
-import { DevelopFrame } from "./DevelopFrame";
+import { DevelopPanel } from "./DevelopPanel";
+import { NoiseField } from "./fx/NoiseField";
+import { prefersReducedMotion } from "./fx/gl";
+import { Gallery } from "./Gallery";
 import { Loupe } from "./Loupe";
 
 interface FormState {
@@ -11,9 +14,32 @@ interface FormState {
   version: number; // 變動時重新建立表單，套用新的初始值
 }
 
-/** 從選項文字找出數字，例如「方形 1024×1024」或「標準（4 步）」 */
+const STAGE: Record<Job["status"], number> = { queued: 0, running: 1, succeeded: 2, failed: 2, cancelled: 2 };
+
+/**
+ * 送單的 HTTP 回應可能比 WebSocket 的「開始執行」事件還晚到，
+ * 這時回應裡的 queued 是舊資料，不能蓋掉已經收到的新狀態。
+ */
+function isStale(known: Job | undefined, incoming: Job) {
+  if (!known) return false;
+  const a = STAGE[known.status], b = STAGE[incoming.status];
+  return b < a || (a === 1 && b === 1 && incoming.progress < known.progress);
+}
+
 function optionLabel(template: Template | undefined, key: string, value: unknown) {
   return template?.fields.find((f) => f.key === key)?.options.find((o) => o.value === value)?.label ?? "";
+}
+
+/** 用 View Transition 包住狀態更新；不支援或使用者偏好減少動態時直接更新。 */
+function withTransition(update: () => void): Promise<void> {
+  const doc = document as Document & {
+    startViewTransition?: (cb: () => void) => { updateCallbackDone: Promise<void> };
+  };
+  if (!doc.startViewTransition || prefersReducedMotion()) {
+    update();
+    return Promise.resolve();
+  }
+  return doc.startViewTransition(() => flushSync(update)).updateCallbackDone;
 }
 
 export function App() {
@@ -27,9 +53,10 @@ export function App() {
   const [loupeId, setLoupeId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const developRef = useRef<HTMLDivElement>(null);
 
   const upsertJob = useCallback((job: Job) => {
-    setJobs((prev) => new Map(prev).set(job.id, job));
+    setJobs((prev) => (isStale(prev.get(job.id), job) ? prev : new Map(prev).set(job.id, job)));
   }, []);
 
   useEffect(() => {
@@ -55,7 +82,7 @@ export function App() {
   useEffect(() => {
     const check = () => api.health().then(setHealth).catch(() => setHealth(null));
     check();
-    const timer = window.setInterval(check, 10000);
+    const timer = window.setInterval(check, 5000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -63,7 +90,6 @@ export function App() {
     () => [...jobs.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [jobs],
   );
-  // 底片編號依生成順序，最舊的是第 1 張
   const numbers = useMemo(
     () => new Map(newestFirst.map((j, i) => [j.id, newestFirst.length - i])),
     [newestFirst],
@@ -79,9 +105,10 @@ export function App() {
     newestFirst.find((j) => j.status === "succeeded") ??
     null;
   const focusTemplate = focusJob ? templateById.get(focusJob.template_id) : current;
-  const dims = optionLabel(focusTemplate, "size", focusJob?.params.size ?? form?.values?.size ?? "square")
-    .match(/(\d+)\s*[×x]\s*(\d+)/);
-  const steps = optionLabel(focusTemplate, "quality", focusJob?.params.quality).match(/(\d+)\s*步/);
+  const dims = optionLabel(focusTemplate, "size", focusJob?.params.size ?? "square").match(/(\d+)\s*[×x]\s*(\d+)/);
+  const steps = optionLabel(focusTemplate, "quality", focusJob?.params.quality ?? "normal").match(/(\d+)\s*步/);
+  const busy = newestFirst.some((j) => j.status === "running");
+  const runningStep = Math.round((newestFirst.find((j) => j.status === "running")?.progress ?? 0) * 100);
 
   const loupeIndex = loupeId ? newestFirst.findIndex((j) => j.id === loupeId) : -1;
   const loupeJob = loupeIndex >= 0 ? newestFirst[loupeIndex] : null;
@@ -93,8 +120,8 @@ export function App() {
       upsertJob(job);
       setFocusId(job.id);
       // 窄螢幕上顯影台在表單下面，送出後捲過去讓人看到進度
-      if (window.matchMedia("(max-width: 900px)").matches) {
-        document.querySelector(".develop")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (window.matchMedia("(max-width: 960px)").matches) {
+        developRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       return true;
     } catch (e) {
@@ -111,7 +138,7 @@ export function App() {
   }
 
   function reuse(job: Job, keepSeed: boolean) {
-    setLoupeId(null);
+    withTransition(() => setLoupeId(null));
     if (!keepSeed) {
       void create(job.template_id, { ...job.params, seed: -1 });
     } else {
@@ -128,18 +155,15 @@ export function App() {
     }
   }
 
-  const comfyLabel = health?.comfy
-    ? `ComfyUI 已連線${health.device ? `（${shortDevice(health.device)}）` : ""}`
-    : "ComfyUI 未連線";
-
   return (
     <div className="app">
+      <NoiseField energy={busy ? 1 : 0} pulseKey={runningStep} />
+
       <header className="masthead">
-        <span className="wordmark">EasyComfy</span>
-        <div className="lamps">
-          <span className={health?.comfy ? "lamp on" : "lamp"}>{comfyLabel}</span>
-          {!live && <span className="lamp">即時更新中斷，正在重新連線</span>}
-        </div>
+        <span className="wordmark">
+          Easy<span>Comfy</span>
+        </span>
+        <GpuStatus health={health} live={live} busy={busy} />
       </header>
 
       <main>
@@ -170,7 +194,7 @@ export function App() {
                 onSubmit={submit}
               />
             ) : (
-              <p className="quiet-text">{error ? "" : "正在載入模板"}</p>
+              <p className="muted">{error ? "" : "正在載入模板"}</p>
             )}
 
             {health && !health.comfy && (
@@ -192,16 +216,17 @@ export function App() {
             )}
           </section>
 
-          <DevelopFrame
-            job={focusJob}
-            frameNumber={focusJob ? numberOf(focusJob) : null}
-            aspect={dims ? `${dims[1]} / ${dims[2]}` : "1 / 1"}
-            preview={focusJob ? previews.get(focusJob.id) : undefined}
-            totalSteps={steps ? Number(steps[1]) : undefined}
-            recent={!!focusJob && focusJob.id !== focusId}
-            onCancel={cancel}
-            onOpen={(j) => setLoupeId(j.id)}
-          />
+          <div ref={developRef}>
+            <DevelopPanel
+              job={focusJob}
+              aspect={dims ? [Number(dims[1]), Number(dims[2])] : [1, 1]}
+              preview={focusJob ? previews.get(focusJob.id) : undefined}
+              totalSteps={steps ? Number(steps[1]) : 4}
+              recent={!!focusJob && focusJob.id !== focusId}
+              onCancel={cancel}
+              onOpen={(j) => withTransition(() => setLoupeId(j.id))}
+            />
+          </div>
         </div>
 
         <section className="archive" aria-labelledby="archive-title">
@@ -210,9 +235,14 @@ export function App() {
             {newestFirst.length > 0 && <span className="count">{newestFirst.length} 張</span>}
           </div>
           {newestFirst.length === 0 ? (
-            <p className="quiet-text">生成的每一張圖都會留在這裡，可以隨時放大、下載，或用同一組設定再生成。</p>
+            <p className="muted">生成的每一張圖都會留在這裡，可以隨時放大、下載，或用同一組設定再生成。</p>
           ) : (
-            <ContactSheet jobs={newestFirst} numberOf={numberOf} onOpen={(j) => setLoupeId(j.id)} />
+            <Gallery
+              jobs={newestFirst}
+              numberOf={numberOf}
+              openId={loupeId}
+              onOpen={(j) => withTransition(() => setLoupeId(j.id))}
+            />
           )}
         </section>
       </main>
@@ -222,7 +252,13 @@ export function App() {
           job={loupeJob}
           number={numberOf(loupeJob)}
           template={templateById.get(loupeJob.template_id)}
-          onClose={() => setLoupeId(null)}
+          onRequestClose={() => {
+            const lastId = loupeJob.id;
+            // 關閉後把焦點還給最後看的那張卡片，鍵盤使用者才不會迷路
+            void withTransition(() => setLoupeId(null)).then(() =>
+              document.querySelector<HTMLElement>(`.tile-card[data-job="${lastId}"]`)?.focus({ preventScroll: true }),
+            );
+          }}
           onStep={(d) => {
             const next = newestFirst[loupeIndex + d];
             if (next) setLoupeId(next.id);
@@ -230,6 +266,39 @@ export function App() {
           onReuse={reuse}
         />
       )}
+    </div>
+  );
+}
+
+/** 頁首右側：ComfyUI 連線、顯示卡名稱與即時 VRAM 用量。 */
+function GpuStatus({ health, live, busy }: { health: Health | null; live: boolean; busy: boolean }) {
+  if (!health?.comfy) {
+    return (
+      <div className="gpu is-offline" role="status">
+        <span className="gpu-dot" aria-hidden />
+        ComfyUI 未連線
+      </div>
+    );
+  }
+  const total = health.vram_total ?? 0;
+  const used = total && health.vram_free !== null ? total - health.vram_free : 0;
+  const ratio = total ? used / total : 0;
+  const gb = (n: number) => (n / 1024 ** 3).toFixed(1);
+  return (
+    <div className={busy ? "gpu is-busy" : "gpu"} role="status">
+      <span className="gpu-dot" aria-hidden />
+      <span className="gpu-name">{shortDevice(health.device ?? "GPU")}</span>
+      {total > 0 && (
+        <span className="gpu-vram" title="顯示卡記憶體用量">
+          <span className="gpu-meter" aria-hidden>
+            <span style={{ transform: `scaleX(${ratio})` }} />
+          </span>
+          <span className="gpu-num">
+            {gb(used)}/{gb(total)} GB
+          </span>
+        </span>
+      )}
+      {!live && <span className="gpu-warn">即時更新重新連線中</span>}
     </div>
   );
 }
