@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import type { Template, TemplateField } from "./api";
 import { magneticHandlers, Scramble } from "./fx/effects";
+import { ImageDrop } from "./ImageDrop";
 
 const magnetic = magneticHandlers();
 
@@ -10,7 +11,7 @@ interface Props {
   template: Template;
   initialValues?: Values;
   submitting: boolean;
-  onSubmit: (values: Values) => void;
+  onSubmit: (values: Values, count: number) => void;
 }
 
 function defaults(template: Template, initial?: Values): Values {
@@ -37,12 +38,15 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
 
   // 第一個必填的文字欄位當作主角：大字的畫面描述
   const lead = template.fields.find((f) => f.type === "text" && f.required);
-  const basic = template.fields.filter((f) => !f.advanced && f !== lead);
+  // 圖片欄位放在最前面：先選原圖，再描述要把它變成什麼
+  const images = template.fields.filter((f) => f.type === "image");
+  const basic = template.fields.filter((f) => !f.advanced && f !== lead && f.type !== "image");
   const advanced = template.fields.filter((f) => f.advanced && f !== lead);
   const leadText = lead ? String(values[lead.key] ?? "") : "";
   const willTranslate = !!lead?.translate && hasChinese(leadText);
 
-  const submit = () => onSubmit(values);
+  const [count, setCount] = useState(1);
+  const submit = () => onSubmit(values, count);
 
   return (
     <form
@@ -55,8 +59,11 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
       {lead && (
         <div className="lead">
           <label htmlFor={`f-${lead.key}`} className="lead-label">
-            <Scramble text="你想看到什麼畫面？" />
+            <Scramble text={images.length ? "你想把它變成什麼？" : "你想看到什麼畫面？"} />
           </label>
+          {images.map((f) => (
+            <Field key={f.key} field={f} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+          ))}
           <div className="prompt-shell">
             <textarea
               id={`f-${lead.key}`}
@@ -120,8 +127,17 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
 
       <div className="submit-row">
         <button type="submit" className="cta" disabled={submitting} {...magnetic}>
-          <span>{submitting ? "送出中" : "開始生成"}</span>
+          <span>{submitting ? "送出中" : count > 1 ? `生成 ${count} 張` : "開始生成"}</span>
         </button>
+        <fieldset className="count">
+          <legend className="visually-hidden">一次生成幾張</legend>
+          {[1, 2, 3, 4].map((n) => (
+            <label key={n} className="count-option">
+              <input type="radio" name="count" value={n} checked={count === n} onChange={() => setCount(n)} />
+              <span>×{n}</span>
+            </label>
+          ))}
+        </fieldset>
         <span className="kbd-hint" aria-hidden>
           <kbd>Ctrl</kbd> + <kbd>Enter</kbd>
         </span>
@@ -132,6 +148,17 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
 
 function Field({ field: f, value, onChange }: { field: TemplateField; value: unknown; onChange: (v: unknown) => void }) {
   const id = useId();
+
+  if (f.type === "image") {
+    return (
+      <div className="field">
+        <label className="field-label" htmlFor={id}>
+          {f.label}
+        </label>
+        <ImageDrop id={id} value={String(value ?? "")} onChange={onChange} />
+      </div>
+    );
+  }
 
   if (f.type === "choice") {
     const shaped = f.options.every((o) => dimensions(o.label));

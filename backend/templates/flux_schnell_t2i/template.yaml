@@ -1,6 +1,7 @@
 id: flux_schnell_t2i
 name: 文生圖（Flux 快速）
-description: 輸入一段英文畫面描述，約 10–30 秒產生一張圖。適合第一次嘗試。
+description: 用一句話描述畫面，中文英文都可以，約 20 秒產生一張圖。適合第一次嘗試。
+order: 1
 workflow: workflow_api.json
 
 fields:
@@ -12,6 +13,33 @@ fields:
     translate: true
     max_length: 2000
     targets: ["4.text"]
+
+  - key: style
+    label: 畫風
+    help: 會在描述後面自動加上對應的英文風格詞。
+    type: choice
+    default: none
+    options:
+      - value: none
+        label: 不指定
+      - value: photo
+        label: 寫實攝影
+        append: { "4.text": ", photorealistic, 35mm photograph, natural lighting, sharp focus, high detail" }
+      - value: anime
+        label: 動漫
+        append: { "4.text": ", anime style illustration, cel shading, vibrant colors, clean line art" }
+      - value: watercolor
+        label: 水彩
+        append: { "4.text": ", watercolor painting, soft washes of color, visible paper texture" }
+      - value: oil
+        label: 油畫
+        append: { "4.text": ", oil painting, thick impasto brush strokes, rich canvas texture" }
+      - value: render
+        label: 3D 渲染
+        append: { "4.text": ", 3D render, octane render, studio lighting, subsurface scattering" }
+      - value: pixel
+        label: 像素藝術
+        append: { "4.text": ", pixel art, 16-bit retro game style, limited color palette" }
 
   - key: size
     label: 尺寸

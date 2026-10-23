@@ -53,10 +53,14 @@ interface Props {
   revealKey?: string;
   alt: string;
   className?: string;
+  /** 圖片載入後回報長寬比（寬 / 高） */
+  onAspect?: (aspect: number) => void;
 }
 
 /** 用 WebGL 把圖片和熱圖雜訊混合，呈現「去雜訊」的過程。不支援 WebGL 時退回一般的 img。 */
-export function DenoiseCanvas({ src, noise, revealKey, alt, className }: Props) {
+export function DenoiseCanvas({ src, noise, revealKey, alt, className, onAspect }: Props) {
+  const aspectCallback = useRef(onAspect);
+  aspectCallback.current = onAspect;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fallback, setFallback] = useState(false);
   const api = useRef<{ setImage: (src: string | null) => void; reveal: () => void } | null>(null);
@@ -111,6 +115,7 @@ export function DenoiseCanvas({ src, noise, revealKey, alt, className }: Props) 
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
           imgAspect = image.naturalWidth / image.naturalHeight;
           hasImg = 1;
+          aspectCallback.current?.(imgAspect);
         };
         image.src = next;
       },

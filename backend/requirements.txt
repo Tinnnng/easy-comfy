@@ -6,3 +6,4 @@ websockets>=13
 pyyaml>=6
 pydantic-settings>=2.6
 pytest>=8
+python-multipart>=0.0.12

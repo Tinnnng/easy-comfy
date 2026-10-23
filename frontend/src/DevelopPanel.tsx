@@ -5,7 +5,8 @@ import { useTween } from "./fx/effects";
 
 interface Props {
   job: Job | null;
-  aspect: [number, number];
+  /** 模板指定的尺寸；圖生圖沒有尺寸欄位時是 null，改用圖片實際比例 */
+  aspect: [number, number] | null;
   preview?: string;
   totalSteps: number;
   /** 不是剛送出的任務，只是拿最近的作品擺著 */
@@ -32,6 +33,8 @@ function useElapsed(job: Job | null) {
 /** 顯影台：WebGL 去雜訊畫面 + 取樣遙測。 */
 export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCancel, onOpen }: Props) {
   const status = job?.status ?? "empty";
+  const [imageAspect, setImageAspect] = useState(1);
+  const ratio = aspect ? `${aspect[0]} / ${aspect[1]}` : String(imageAspect);
   const progress = job?.progress ?? 0;
   const finalSrc = job?.status === "succeeded" && job.images[0] ? `/outputs/${job.images[0]}` : null;
   const step = status === "succeeded" ? totalSteps : Math.round(progress * totalSteps);
@@ -65,13 +68,14 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
     <section className={`develop state-${status}`} aria-labelledby="develop-title">
       <h2 id="develop-title" className="visually-hidden">目前的生成</h2>
 
-      <div className="viewport" style={{ aspectRatio: `${aspect[0]} / ${aspect[1]}` }}>
+      <div className="viewport" style={{ aspectRatio: ratio }}>
         <DenoiseCanvas
           className="viewport-canvas"
           src={src}
           noise={noise}
           revealKey={finalSrc ?? undefined}
           alt={finalSrc ? prompt : "正在生成的畫面"}
+          onAspect={setImageAspect}
         />
         {finalSrc && job && (
           <button className="viewport-open" onClick={() => onOpen(job)} aria-label="放大檢視這張圖" />

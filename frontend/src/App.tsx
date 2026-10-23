@@ -49,7 +49,8 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [live, setLive] = useState(true);
   const [form, setForm] = useState<FormState | null>(null);
-  const [focusId, setFocusId] = useState<string | null>(null);
+  // 最近一次送出的那一批任務（單張也算一批）
+  const [batchIds, setBatchIds] = useState<string[]>([]);
   const [loupeId, setLoupeId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -98,9 +99,12 @@ export function App() {
   const templateById = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates]);
   const current = form ? templateById.get(form.templateId) : undefined;
 
-  // 顯影台：自己剛送出的那張優先，其次是正在跑的任務，都沒有就擺最近完成的作品
+  // 顯影台：跟著自己剛送出的那批，依序看還沒跑完的那張，全部跑完停在最後一張；
+  // 沒有送過就看正在跑的任務，再不然擺最近完成的作品
+  const batch = batchIds.map((id) => jobs.get(id)).filter((j): j is Job => !!j);
+  const batchJob = batch.find((j) => j.status === "running" || j.status === "queued") ?? batch.at(-1);
   const focusJob =
-    (focusId ? jobs.get(focusId) : undefined) ??
+    batchJob ??
     newestFirst.find((j) => j.status === "running") ??
     newestFirst.find((j) => j.status === "succeeded") ??
     null;
@@ -113,12 +117,12 @@ export function App() {
   const loupeIndex = loupeId ? newestFirst.findIndex((j) => j.id === loupeId) : -1;
   const loupeJob = loupeIndex >= 0 ? newestFirst[loupeIndex] : null;
 
-  async function create(templateId: string, values: Record<string, unknown>) {
+  async function create(templateId: string, values: Record<string, unknown>, count = 1) {
     setError(null);
     try {
-      const job = await api.createJob(templateId, values);
-      upsertJob(job);
-      setFocusId(job.id);
+      const created = await api.createJobs(templateId, values, count);
+      created.forEach(upsertJob);
+      setBatchIds(created.map((j) => j.id));
       // 窄螢幕上顯影台在表單下面，送出後捲過去讓人看到進度
       if (window.matchMedia("(max-width: 960px)").matches) {
         developRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -130,10 +134,10 @@ export function App() {
     }
   }
 
-  async function submit(values: Record<string, unknown>) {
+  async function submit(values: Record<string, unknown>, count: number) {
     if (!current) return;
     setSubmitting(true);
-    await create(current.id, values);
+    await create(current.id, values, count);
     setSubmitting(false);
   }
 
@@ -221,10 +225,10 @@ export function App() {
           <div ref={developRef}>
             <DevelopPanel
               job={focusJob}
-              aspect={dims ? [Number(dims[1]), Number(dims[2])] : [1, 1]}
+              aspect={dims ? [Number(dims[1]), Number(dims[2])] : focusTemplate?.fields.some((f) => f.key === "size") === false ? null : [1, 1]}
               preview={focusJob ? previews.get(focusJob.id) : undefined}
-              totalSteps={steps ? Number(steps[1]) : 4}
-              recent={!!focusJob && focusJob.id !== focusId}
+              totalSteps={focusJob?.total_steps ?? (steps ? Number(steps[1]) : 4)}
+              recent={!!focusJob && focusJob !== batchJob}
               onCancel={cancel}
               onOpen={(j) => withTransition(() => setLoupeId(j.id))}
             />

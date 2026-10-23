@@ -1,0 +1,75 @@
+id: flux_schnell_i2i
+name: 圖生圖（改造一張圖）
+description: 上傳一張圖，描述你想把它變成什麼樣子。構圖會沿用原圖，內容和畫風依描述改變。
+order: 2
+workflow: workflow_api.json
+
+fields:
+  - key: image
+    label: 原圖
+    help: 支援 PNG、JPG、WebP，最大 20 MB。會自動縮放到約 100 萬像素。
+    type: image
+    required: true
+    targets: ["6.image"]
+
+  - key: prompt
+    label: 畫面描述
+    help: 描述你希望這張圖變成的樣子，中文會先自動翻成英文。
+    type: text
+    required: true
+    translate: true
+    max_length: 2000
+    targets: ["4.text"]
+
+  - key: strength
+    label: 改變程度
+    help: 越高越不像原圖；想保留構圖選「輕微」，想大幅改造選「大幅」（比較慢）。
+    type: choice
+    default: medium
+    # ComfyUI 以 int(步數 / denoise) 決定起始雜訊量，所以每檔搭配步數，
+    # 讓起始雜訊落在 6/7≈0.857、8/9≈0.889、12/13≈0.923（實測 0.8 以下幾乎不會改變畫面）
+    options:
+      - value: light
+        label: 輕微
+        set: { "9.steps": 6, "9.denoise": 0.85 }
+      - value: medium
+        label: 適中
+        set: { "9.steps": 8, "9.denoise": 0.88 }
+      - value: strong
+        label: 大幅
+        set: { "9.steps": 12, "9.denoise": 0.92 }
+
+  - key: style
+    label: 畫風
+    help: 會在描述後面自動加上對應的英文風格詞。
+    type: choice
+    default: none
+    options:
+      - value: none
+        label: 不指定
+      - value: photo
+        label: 寫實攝影
+        append: { "4.text": ", photorealistic, 35mm photograph, natural lighting, sharp focus, high detail" }
+      - value: anime
+        label: 動漫
+        append: { "4.text": ", anime style illustration, cel shading, vibrant colors, clean line art" }
+      - value: watercolor
+        label: 水彩
+        append: { "4.text": ", watercolor painting, soft washes of color, visible paper texture" }
+      - value: oil
+        label: 油畫
+        append: { "4.text": ", oil painting, thick impasto brush strokes, rich canvas texture" }
+      - value: render
+        label: 3D 渲染
+        append: { "4.text": ", 3D render, octane render, studio lighting, subsurface scattering" }
+      - value: pixel
+        label: 像素藝術
+        append: { "4.text": ", pixel art, 16-bit retro game style, limited color palette" }
+
+  - key: seed
+    label: 隨機種子
+    help: -1 代表每次隨機。想重現同一張圖時，填入歷史紀錄裡的種子。
+    type: seed
+    default: -1
+    advanced: true
+    targets: ["9.seed"]

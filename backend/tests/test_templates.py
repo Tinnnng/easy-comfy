@@ -86,3 +86,31 @@ def test_parse_preview_formats():
     assert parse_preview(modern)["data"] == {"mime": "image/png", "image": b"PNGDATA", "prompt_id": "p1"}
 
     assert parse_preview(b"\x00\x00\x00\x09junk") is None
+
+
+def test_style_appends_after_prompt(flux):
+    resolved = flux.resolve_params({"prompt": "a cat", "style": "watercolor", "seed": 1})
+    text = flux.build_workflow(resolved)["4"]["inputs"]["text"]
+    assert text.startswith("a cat, watercolor painting")
+
+
+def test_no_style_leaves_prompt_untouched(flux):
+    resolved = flux.resolve_params({"prompt": "a cat", "seed": 1})
+    assert resolved["style"] == "none"
+    assert flux.build_workflow(resolved)["4"]["inputs"]["text"] == "a cat"
+
+
+def test_templates_are_ordered_for_beginners():
+    assert list(load_templates(TEMPLATES_DIR))[0] == "flux_schnell_t2i"
+
+
+def test_img2img_strengths_hit_distinct_noise_levels():
+    # ComfyUI 以 int(steps / denoise) 決定起始雜訊量，三檔必須落在不同的值
+    i2i = load_templates(TEMPLATES_DIR)["flux_schnell_i2i"]
+    strength = next(f for f in i2i.fields if f.key == "strength")
+    levels = []
+    for o in strength.options:
+        steps, denoise = o.set["9.steps"], o.set["9.denoise"]
+        levels.append(steps / int(steps / denoise))
+    assert levels == sorted(levels) and len(set(levels)) == 3
+    assert all(0.85 < level < 0.95 for level in levels)

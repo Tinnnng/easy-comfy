@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,6 +13,8 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 MAX_SEED = 2**32 - 1
+# 上傳到 ComfyUI input 資料夾的檔名（由 /api/uploads 產生），不允許路徑
+IMAGE_NAME = re.compile(r"^[\w\-. ()]+\.(png|jpe?g|webp)$", re.IGNORECASE)
 
 
 class TemplateError(ValueError):
@@ -31,12 +34,14 @@ class ChoiceOption(BaseModel):
     value: str
     label: str
     set: dict[str, Any] = Field(default_factory=dict)
+    # 接在文字輸入後面，例如風格預設把 ", watercolor painting" 加到提示詞尾端
+    append: dict[str, str] = Field(default_factory=dict)
 
 
 class TemplateField(BaseModel):
     key: str
     label: str
-    type: Literal["text", "number", "choice", "seed"]
+    type: Literal["text", "number", "choice", "seed", "image"]
     help: str | None = None
     required: bool = False
     advanced: bool = False
@@ -65,6 +70,8 @@ class Template(BaseModel):
     id: str
     name: str
     description: str = ""
+    # 前端分頁的排列順序，數字小的在前面
+    order: int = 100
     fields: list[TemplateField]
     workflow: dict[str, Any] = Field(exclude=True)
 
@@ -117,6 +124,10 @@ class Template(BaseModel):
             elif f.type == "choice":
                 if value not in {o.value for o in f.options}:
                     raise ParamError(f.key, "不是可用的選項")
+            elif f.type == "image":
+                value = str(value)
+                if not IMAGE_NAME.match(value):
+                    raise ParamError(f.key, "請重新上傳圖片")
             elif f.type == "seed":
                 try:
                     value = int(value)
@@ -132,6 +143,7 @@ class Template(BaseModel):
     def build_workflow(self, resolved: dict[str, Any]) -> dict[str, Any]:
         """把已驗證的欄位值寫進 workflow 的對應節點。"""
         workflow = copy.deepcopy(self.workflow)
+        appends: list[tuple[str, str]] = []
         for f in self.fields:
             if f.key not in resolved:
                 continue
@@ -140,9 +152,14 @@ class Template(BaseModel):
                 option = next(o for o in f.options if o.value == value)
                 for target, v in option.set.items():
                     _set_input(workflow, target, v)
+                appends += option.append.items()
             else:
                 for target in f.targets:
                     _set_input(workflow, target, value)
+        # 最後才接，才不會被後面的欄位覆蓋掉
+        for target, suffix in appends:
+            node, name = _split_target(target)
+            _set_input(workflow, target, str(workflow[node]["inputs"][name]) + suffix)
         return workflow
 
 
@@ -160,7 +177,7 @@ def _set_input(workflow: dict[str, Any], target: str, value: Any) -> None:
 
 def _check_targets(template: Template) -> None:
     for f in template.fields:
-        targets = list(f.targets) + [t for o in f.options for t in o.set]
+        targets = list(f.targets) + [t for o in f.options for t in [*o.set, *o.append]]
         for target in targets:
             node, name = _split_target(target)
             if node not in template.workflow:
@@ -188,4 +205,4 @@ def load_templates(root: Path) -> dict[str, Template]:
         if t.id in templates:
             raise TemplateError(f"模板 id 重複：{t.id}")
         templates[t.id] = t
-    return templates
+    return dict(sorted(templates.items(), key=lambda kv: (kv[1].order, kv[0])))

@@ -67,7 +67,10 @@ class ComfyClient:
             spec = info[cls].get("input", {})
             inputs = spec.get("required", {}) | spec.get("optional", {})
             for name, value in node["inputs"].items():
-                choices = inputs.get(name, [None])[0]
+                spec = inputs.get(name, [None])
+                choices = spec[0]
+                if choices == "COMBO" and len(spec) > 1:  # 新版 ComfyUI 的下拉選單格式
+                    choices = spec[1].get("options")
                 if isinstance(choices, list) and isinstance(value, str) and value not in choices:
                     problems.append(f"節點 {node_id}（{cls}）的 {name} 找不到：{value}")
         return problems
@@ -77,6 +80,18 @@ class ComfyClient:
         if r.status_code != 200:
             raise ComfyError(f"ComfyUI 拒絕這個 workflow：{r.text[:500]}")
         return r.json()["prompt_id"]
+
+    async def upload_image(self, filename: str, data: bytes, content_type: str) -> str:
+        """上傳到 ComfyUI 的 input 資料夾，回傳實際檔名（同名時 ComfyUI 會自動改名）。"""
+        r = await self.http.post("/upload/image", files={"image": (filename, data, content_type)},
+                                 data={"overwrite": "false"})
+        if r.status_code != 200:
+            raise ComfyError(f"ComfyUI 拒絕這張圖片：{r.text[:200]}")
+        body = r.json()
+        return f"{body['subfolder']}/{body['name']}" if body.get("subfolder") else body["name"]
+
+    async def view_input(self, filename: str) -> httpx.Response:
+        return await self.http.get("/view", params={"filename": filename, "type": "input"})
 
     async def interrupt(self) -> None:
         await self.http.post("/interrupt")
@@ -94,6 +109,20 @@ class ComfyClient:
                 yield json.loads(message)
             elif preview := parse_preview(message):
                 yield preview
+
+    async def prompt_state(self, prompt_id: str) -> str:
+        """回傳 "done"、"error"、"pending"（還在佇列或執行中）或 "missing"（ComfyUI 不認得）。"""
+        r = await self.http.get(f"/history/{prompt_id}")
+        r.raise_for_status()
+        entry = r.json().get(prompt_id)
+        if entry:
+            return "error" if (entry.get("status") or {}).get("status_str") == "error" else "done"
+        r = await self.http.get("/queue")
+        r.raise_for_status()
+        queue = r.json()
+        # 佇列項目的格式是 [編號, prompt_id, workflow, ...]
+        ids = {item[1] for item in queue.get("queue_running", []) + queue.get("queue_pending", [])}
+        return "pending" if prompt_id in ids else "missing"
 
     async def output_images(self, prompt_id: str) -> list[dict[str, str]]:
         r = await self.http.get(f"/history/{prompt_id}")

@@ -37,7 +37,7 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
     .map((f) => {
       const raw = job.params[f.key];
       const option = f.options.find((o) => o.value === raw);
-      return { key: f.key, label: f.label, value: option?.label ?? String(raw) };
+      return { key: f.key, label: f.label, type: f.type, value: option?.label ?? String(raw) };
     });
 
   const copySeed = async () => {
@@ -112,7 +112,13 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse }
               <div key={s.key}>
                 <dt>{s.label}</dt>
                 <dd>
-                  {s.value}
+                  {s.type === "image" ? (
+                    <a href={`/api/inputs/${s.value}`} target="_blank" rel="noreferrer" className="source-thumb">
+                      <img src={`/api/inputs/${s.value}`} alt="原圖" />
+                    </a>
+                  ) : (
+                    s.value
+                  )}
                   {s.key === "seed" && (
                     <button className="copy" onClick={copySeed}>
                       {copied ? "已複製" : "複製"}

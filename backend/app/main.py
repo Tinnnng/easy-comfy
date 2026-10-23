@@ -6,17 +6,20 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from .comfy_client import ComfyClient
+from .comfy_client import ComfyClient, ComfyError
 from .config import Settings, settings as default_settings
 from .db import Database, Job
 from .events import EventBus
-from .templates import ParamError, load_templates
+from .templates import IMAGE_NAME, MAX_SEED, ParamError, load_templates
 from .translate import TranslateError, Translator, create_translator, translate_fields
 from .worker import Worker
+
+UPLOAD_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("easycomfy")
@@ -25,6 +28,8 @@ log = logging.getLogger("easycomfy")
 class JobCreate(BaseModel):
     template_id: str
     params: dict[str, Any] = {}
+    # 一次生成幾張；8GB 顯卡一張一張排隊跑，所以上限放小一點
+    count: int = Field(default=1, ge=1, le=4)
 
 
 def create_app(settings: Settings = default_settings, translator: Translator | None = None) -> FastAPI:
@@ -75,7 +80,7 @@ def create_app(settings: Settings = default_settings, translator: Translator | N
         return [t.public() for t in templates.values()]
 
     @app.post("/api/jobs", status_code=201)
-    async def create_job(body: JobCreate) -> dict[str, Any]:
+    async def create_jobs(body: JobCreate) -> list[dict[str, Any]]:
         template = templates.get(body.template_id)
         if template is None:
             raise HTTPException(404, "找不到這個模板")
@@ -98,11 +103,50 @@ def create_app(settings: Settings = default_settings, translator: Translator | N
         if problems:
             raise HTTPException(409, {"message": "ComfyUI 缺少這個模板需要的東西", "problems": problems})
 
-        job = db.add(Job(template_id=template.id, params=resolved, sources=sources))
+        # 批次生成：每張的種子依序加 1，之後每一張都能單獨重現
+        seed_key = next((f.key for f in template.fields if f.type == "seed"), None)
+        created = []
+        for i in range(body.count):
+            params = dict(resolved)
+            if seed_key and i:
+                params[seed_key] = (resolved[seed_key] + i) % (MAX_SEED + 1)
+            created.append(with_position(db.add(Job(template_id=template.id, params=params, sources=sources))))
         app.state.worker.notify()
-        out = with_position(job)
-        bus.publish({"type": "job", "job": out})
-        return out
+        for out in created:
+            bus.publish({"type": "job", "job": out})
+        return created
+
+    @app.post("/api/uploads", status_code=201)
+    async def upload(file: UploadFile) -> dict[str, str]:
+        """圖生圖的原圖：直接轉存到 ComfyUI 的 input 資料夾。"""
+        ext = UPLOAD_TYPES.get(file.content_type or "")
+        if ext is None:
+            raise HTTPException(415, "只支援 PNG、JPG 或 WebP 圖片")
+        data = await file.read(MAX_UPLOAD_BYTES + 1)
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "圖片太大了，請小於 20 MB")
+        try:
+            name = await app.state.comfy.upload_image(f"easycomfy_{uuid.uuid4().hex[:12]}{ext}",
+                                                      data, file.content_type)
+        except (httpx.HTTPError, OSError):
+            raise HTTPException(503, "連不上 ComfyUI，請確認它已經啟動") from None
+        except ComfyError as e:
+            raise HTTPException(502, str(e)) from None
+        return {"name": name, "url": f"/api/inputs/{name}"}
+
+    @app.get("/api/inputs/{name}")
+    async def input_image(name: str) -> Response:
+        """顯示之前上傳的原圖（從 ComfyUI 轉過來）。"""
+        if not IMAGE_NAME.match(name):
+            raise HTTPException(404, "找不到這張圖")
+        try:
+            r = await app.state.comfy.view_input(name)
+        except (httpx.HTTPError, OSError):
+            raise HTTPException(503, "連不上 ComfyUI") from None
+        if r.status_code != 200:
+            raise HTTPException(404, "找不到這張圖")
+        return Response(r.content, media_type=r.headers.get("content-type", "image/png"),
+                        headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/api/jobs")
     def list_jobs(limit: int = 50) -> list[dict[str, Any]]:

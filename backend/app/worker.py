@@ -124,34 +124,73 @@ class Worker:
             raise ComfyError(f"模板 {job.template_id} 已不存在")
         workflow = template.build_workflow(job.params)
 
-        async with self.comfy.connect_events() as ws:
-            prompt_id = await self.comfy.queue_prompt(workflow)
-            self.db.update(job.id, prompt_id=prompt_id)
-            async for event in self.comfy.iter_events(ws):
-                data: dict[str, Any] = event.get("data") or {}
-                if data.get("prompt_id") not in (None, prompt_id):
-                    continue  # 別人直接在 ComfyUI 介面送的任務
-                kind = event.get("type")
-                if kind == "preview":
-                    # 預覽圖不進資料庫，只即時推給前端
-                    image = base64.b64encode(data["image"]).decode()
-                    self.bus.publish({"type": "preview", "job_id": job.id,
-                                      "image": f"data:{data['mime']};base64,{image}"})
-                elif kind == "progress" and data.get("max"):
-                    self._emit(self.db.update(job.id, progress=data["value"] / data["max"]))
-                elif kind == "execution_error":
-                    raise ComfyError(f"{data.get('node_type', '節點')} 執行失敗："
-                                     f"{data.get('exception_message', '').strip()}")
-                elif kind == "execution_interrupted":
-                    if self._cancel_requested:
-                        raise JobCancelled
-                    raise ComfyError("任務在 ComfyUI 被中斷")
-                elif kind == "execution_success" or (
-                        kind == "executing" and data.get("node") is None
-                        and data.get("prompt_id") == prompt_id):
-                    break
+        prompt_id: str | None = None
+        failures = 0
+        while True:
+            try:
+                async with self.comfy.connect_events() as ws:
+                    if prompt_id is None:
+                        prompt_id = await self.comfy.queue_prompt(workflow)
+                        self.db.update(job.id, prompt_id=prompt_id)
+                    elif await self._finished_while_away(prompt_id):
+                        break
+                    failures = 0
+                    if await self._listen(job, ws, prompt_id):
+                        break
+                    # 事件串流自己結束了：當作斷線處理
+            except (OSError, httpx.HTTPError, websockets.WebSocketException):
+                if prompt_id is None:
+                    raise  # 還沒送出就連不上，直接失敗
+            failures += 1
+            if failures > self.RECONNECT_ATTEMPTS:
+                raise ComfyError("和 ComfyUI 的連線中斷，重試多次仍連不上")
+            log.warning("任務 %s 與 ComfyUI 的連線中斷，第 %d 次重連", job.id, failures)
+            await asyncio.sleep(self.reconnect_delay(failures))
 
         return await self._save_outputs(job.id, prompt_id)
+
+    RECONNECT_ATTEMPTS = 5
+
+    @staticmethod
+    def reconnect_delay(failures: int) -> float:
+        return min(2 ** failures, 10)
+
+    async def _finished_while_away(self, prompt_id: str) -> bool:
+        """重新連上後先問 ComfyUI：斷線期間任務是不是已經跑完、失敗，或因為重啟而遺失。"""
+        state = await self.comfy.prompt_state(prompt_id)
+        if state == "error":
+            raise ComfyError("任務在連線中斷期間執行失敗")
+        if state == "missing":
+            raise ComfyError("ComfyUI 重新啟動過，這個任務已經遺失")
+        return state == "done"
+
+    async def _listen(self, job: Job, ws: Any, prompt_id: str) -> bool:
+        """處理 ComfyUI 事件，任務完成時回傳 True；串流中途結束回傳 False。"""
+        async for event in self.comfy.iter_events(ws):
+            data: dict[str, Any] = event.get("data") or {}
+            if data.get("prompt_id") not in (None, prompt_id):
+                continue  # 別人直接在 ComfyUI 介面送的任務
+            kind = event.get("type")
+            if kind == "preview":
+                # 預覽圖不進資料庫，只即時推給前端
+                image = base64.b64encode(data["image"]).decode()
+                self.bus.publish({"type": "preview", "job_id": job.id,
+                                  "image": f"data:{data['mime']};base64,{image}"})
+            elif kind == "progress" and data.get("max"):
+                self._emit(self.db.update(job.id, progress=data["value"] / data["max"],
+                                          total_steps=data["max"]))
+            elif kind == "execution_error":
+                raise ComfyError(f"{data.get('node_type', '節點')} 執行失敗："
+                                 f"{data.get('exception_message', '').strip()}")
+            elif kind == "execution_interrupted":
+                if self._cancel_requested:
+                    raise JobCancelled
+                raise ComfyError("任務在 ComfyUI 被中斷")
+            elif kind == "execution_success" or (
+                    kind == "executing" and data.get("node") is None
+                    and data.get("prompt_id") == prompt_id):
+                return True
+        return False
 
     async def _save_outputs(self, job_id: str, prompt_id: str) -> list[str]:
         images = await self.comfy.output_images(prompt_id)

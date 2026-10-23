@@ -37,6 +37,8 @@ class Job(SQLModel, table=True):
     images: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     # 翻譯前的原文，例如 {"prompt": "一隻貓"}；params 裡放的是實際送給模型的英文
     sources: dict[str, str] = Field(default_factory=dict, sa_column=Column(JSON))
+    # ComfyUI 回報的取樣總步數（不同模板、不同強度的步數不一樣）
+    total_steps: int | None = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -54,8 +56,14 @@ class Database:
         """create_all 不會替舊資料表補欄位，這裡補上之後才新增的欄位。"""
         with self.engine.begin() as conn:
             existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(job)")}
-            if "sources" not in existing:
-                conn.exec_driver_sql("ALTER TABLE job ADD COLUMN sources JSON DEFAULT '{}'")
+            for name, ddl in self.ADDED_COLUMNS.items():
+                if name not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE job ADD COLUMN {name} {ddl}")
+
+    ADDED_COLUMNS = {
+        "sources": "JSON DEFAULT '{}'",
+        "total_steps": "INTEGER",
+    }
 
     def session(self) -> Session:
         return Session(self.engine, expire_on_commit=False)

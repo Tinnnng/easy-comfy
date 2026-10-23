@@ -1,4 +1,4 @@
-export type FieldType = "text" | "number" | "choice" | "seed";
+export type FieldType = "text" | "number" | "choice" | "seed" | "image";
 
 export interface TemplateField {
   key: string;
@@ -34,6 +34,7 @@ export interface Job {
   images: string[];
   /** 翻譯前的原文；params 裡是實際送給模型的英文 */
   sources: Record<string, string>;
+  total_steps: number | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -73,8 +74,16 @@ export const api = {
   health: () => request<Health>("/api/health"),
   templates: () => request<Template[]>("/api/templates"),
   jobs: () => request<Job[]>("/api/jobs"),
-  createJob: (template_id: string, params: Record<string, unknown>) =>
-    request<Job>("/api/jobs", { method: "POST", body: JSON.stringify({ template_id, params }) }),
+  createJobs: (template_id: string, params: Record<string, unknown>, count = 1) =>
+    request<Job[]>("/api/jobs", { method: "POST", body: JSON.stringify({ template_id, params, count }) }),
+  uploadImage: async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch("/api/uploads", { method: "POST", body });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(typeof data?.detail === "string" ? data.detail : `上傳失敗（${res.status}）`);
+    return data as { name: string; url: string };
+  },
   cancelJob: (id: string) => request<{ ok: boolean }>(`/api/jobs/${id}/cancel`, { method: "POST" }),
 };
 

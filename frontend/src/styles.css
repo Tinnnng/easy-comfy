@@ -242,6 +242,21 @@ main { max-width: 1400px; margin: 0 auto; padding: 0 var(--gutter) 120px; }
 .cta:active { transform: scale(0.96); }
 .cta:disabled { cursor: progress; animation-duration: 1.2s; }
 .cta-block { align-self: stretch; }
+/* 張數：一排小方塊，像儀器上的檔位 */
+.count {
+  display: inline-flex; gap: 2px; margin: 0; padding: 3px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--glass); backdrop-filter: blur(10px);
+}
+.count-option { position: relative; }
+.count-option input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.count-option span {
+  display: grid; place-items: center; min-width: 40px; height: 34px; border-radius: 999px;
+  font-family: var(--mono); font-size: var(--t-xs); color: var(--muted);
+  transition: background 0.2s, color 0.2s;
+}
+.count-option input:hover + span { color: var(--text); }
+.count-option input:checked + span { background: rgba(249, 142, 9, 0.16); color: var(--flare); }
+.count-option input:focus-visible + span { outline: 2px solid var(--ember); outline-offset: 1px; }
 .kbd-hint { font-size: var(--t-xs); color: var(--muted); }
 @media (hover: none) { .kbd-hint { display: none; } }
 kbd {
@@ -470,3 +485,33 @@ kbd {
   }
   .scanline { display: none; }
 }
+
+/* ===== 圖生圖：原圖上傳 ===== */
+.drop-wrap { display: flex; flex-direction: column; gap: 8px; }
+.drop {
+  position: relative; display: grid; place-items: center; width: 100%; min-height: 168px;
+  padding: 0; overflow: hidden; border-radius: 16px; color: var(--muted);
+  border: 1.5px dashed var(--line-strong); background: var(--glass); backdrop-filter: blur(12px);
+  transition: border-color 0.25s, box-shadow 0.25s, background-color 0.25s;
+}
+.drop:hover, .drop.is-dragging { border-color: var(--ember); color: var(--text); }
+.drop.is-dragging { background: rgba(249, 142, 9, 0.08); box-shadow: 0 0 40px -10px rgba(249, 142, 9, 0.6); }
+.drop.has-image { border-style: solid; border-color: var(--line); min-height: 0; }
+.drop img { width: 100%; max-height: 260px; object-fit: contain; background: #000; }
+.drop-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: var(--t-sm); padding: 24px; }
+.drop-status {
+  position: absolute; right: 12px; bottom: 12px; padding: 4px 10px; border-radius: 999px;
+  font-family: var(--mono); font-size: var(--t-xs); color: var(--flare); background: rgba(12, 10, 29, 0.8);
+}
+/* 上傳中：掃描線從上往下掃過原圖 */
+.drop-scan { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.drop.is-busy .drop-scan {
+  opacity: 1;
+  background: linear-gradient(180deg, transparent 40%, rgba(252, 255, 164, 0.35) 50%, transparent 60%);
+  background-size: 100% 220%;
+  animation: drop-scan 1.1s linear infinite;
+}
+@keyframes drop-scan { from { background-position: 0 100%; } to { background-position: 0 -120%; } }
+.drop-error { color: #ff8fa3; }
+
+.source-thumb img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
