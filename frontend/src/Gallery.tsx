@@ -8,6 +8,7 @@ interface Props {
   openId: string | null;
   onOpen: (job: Job) => void;
   onDelete: (job: Job) => void;
+  onPrioritize: (job: Job) => void;
 }
 
 const STATUS: Partial<Record<Job["status"], string>> = {
@@ -19,7 +20,7 @@ const STATUS: Partial<Record<Job["status"], string>> = {
 
 const tilt = tiltHandlers();
 
-export function Gallery({ jobs, numberOf, openId, onOpen, onDelete }: Props) {
+export function Gallery({ jobs, numberOf, openId, onOpen, onDelete, onPrioritize }: Props) {
   return (
     <ol className="gallery">
       {jobs.map((job) => {
@@ -59,6 +60,11 @@ export function Gallery({ jobs, numberOf, openId, onOpen, onDelete }: Props) {
               </span>
             </button>
             {job.status !== "running" && <TileDelete n={n} onConfirm={() => onDelete(job)} />}
+            {job.status === "queued" && !!job.queue_position && (
+              <button type="button" className="tile-priority" onClick={() => onPrioritize(job)}>
+                移到最前面
+              </button>
+            )}
             <p className="tile-prompt" title={prompt}>
               {prompt}
             </p>

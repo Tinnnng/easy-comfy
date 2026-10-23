@@ -34,7 +34,9 @@ export function Composer({ template, initialValues, submitting, onSubmit }: Prop
   const [showAdvanced, setShowAdvanced] = useState(
     () => !!initialValues && template.fields.some((f) => f.advanced && initialValues[f.key] !== f.default),
   );
-  const set = (key: string, value: unknown) => setValues((v) => ({ ...v, [key]: value }));
+  // 可以傳新值，或傳一個「根據目前的值算出新值」的函式（連續快速點擊時不會用到舊值）
+  const set = (key: string, value: unknown) =>
+    setValues((v) => ({ ...v, [key]: typeof value === "function" ? value(v[key]) : value }));
 
   // 第一個必填的文字欄位當作主角：大字的畫面描述
   const lead = template.fields.find((f) => f.type === "text" && f.required);
@@ -165,6 +167,47 @@ function Field({ field: f, value, onChange }: { field: TemplateField; value: unk
         </label>
         <ImageDrop id={id} value={String(value ?? "")} onChange={onChange} />
       </div>
+    );
+  }
+
+  if (f.type === "tags") {
+    const selected = Array.isArray(value) ? (value as string[]) : [];
+    const full = !!f.max_select && selected.length >= f.max_select;
+    const toggle = (v: string) =>
+      onChange((prev: unknown) => {
+        const current = Array.isArray(prev) ? (prev as string[]) : [];
+        if (current.includes(v)) return current.filter((s) => s !== v);
+        return f.max_select && current.length >= f.max_select ? current : [...current, v];
+      });
+    return (
+      <fieldset className="field">
+        <legend className="field-label">
+          {f.label}
+          {f.max_select && (
+            <span className="tag-count" aria-live="polite">
+              {selected.length}/{f.max_select}
+            </span>
+          )}
+        </legend>
+        <div className="tags">
+          {f.options.map((o) => {
+            const on = selected.includes(o.value);
+            return (
+              <button
+                key={o.value}
+                type="button"
+                className={on ? "tag is-on" : "tag"}
+                aria-pressed={on}
+                disabled={!on && full}
+                onClick={() => toggle(o.value)}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+        {f.help && <p className="field-help">{f.help}</p>}
+      </fieldset>
     );
   }
 

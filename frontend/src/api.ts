@@ -1,4 +1,4 @@
-export type FieldType = "text" | "number" | "choice" | "seed" | "image";
+export type FieldType = "text" | "number" | "choice" | "tags" | "seed" | "image";
 
 export interface TemplateField {
   key: string;
@@ -11,6 +11,7 @@ export interface TemplateField {
   min: number | null;
   max: number | null;
   max_length: number | null;
+  max_select: number | null;
   translate: boolean;
   options: { value: string; label: string }[];
 }
@@ -94,6 +95,7 @@ export const api = {
   deleteJob: (id: string) => request<{ deleted: string[] }>(`/api/jobs/${id}`, { method: "DELETE" }),
   clearJobs: (statuses: JobStatus[]) =>
     request<{ deleted: string[] }>("/api/jobs/clear", { method: "POST", body: JSON.stringify({ statuses }) }),
+  prioritizeJob: (id: string) => request<Job>(`/api/jobs/${id}/prioritize`, { method: "POST" }),
   cancelJob: (id: string) => request<{ ok: boolean }>(`/api/jobs/${id}/cancel`, { method: "POST" }),
 };
 

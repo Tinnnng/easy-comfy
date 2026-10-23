@@ -114,3 +114,23 @@ def test_img2img_strengths_hit_distinct_noise_levels():
         levels.append(steps / int(steps / denoise))
     assert levels == sorted(levels) and len(set(levels)) == 3
     assert all(0.85 < level < 0.95 for level in levels)
+
+
+def test_detail_tags_append_in_option_order(flux):
+    resolved = flux.resolve_params({"prompt": "a cat", "details": ["bokeh", "golden"], "style": "photo", "seed": 1})
+    assert resolved["details"] == ["golden", "bokeh"]
+    text = flux.build_workflow(resolved)["4"]["inputs"]["text"]
+    assert text.startswith("a cat, golden hour") and "bokeh background" in text and "photorealistic" in text
+
+
+@pytest.mark.parametrize("details", ["golden", ["nope"], ["golden", "soft", "neon", "mist", "wide"]])
+def test_invalid_detail_tags(flux, details):
+    with pytest.raises(ParamError) as e:
+        flux.resolve_params({"prompt": "a cat", "details": details})
+    assert e.value.field == "details"
+
+
+def test_no_details_by_default(flux):
+    resolved = flux.resolve_params({"prompt": "a cat", "seed": 1})
+    assert resolved.get("details", []) == []
+    assert flux.build_workflow(resolved)["4"]["inputs"]["text"] == "a cat"

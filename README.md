@@ -1,34 +1,61 @@
 # EasyComfy
 
-讓新手不用碰節點圖也能使用 ComfyUI：選一個模板、填幾個白話欄位，按下「生成」就好。
-後端負責排隊、送出、追蹤進度和保存結果。
+讓新手不用碰節點圖也能使用 ComfyUI：選一個模板、用中文寫一句描述、點幾個細節，按下「開始生成」就好。
+後端負責翻譯、排隊、派送到 ComfyUI、追蹤進度和保存結果；前端用 WebGL 把擴散模型「從雜訊收斂成圖片」的過程即時畫出來。
 
-> 🚧 開發中。規劃與進度請見 [docs/PLAN.md](docs/PLAN.md)。
+![Demo：輸入中文描述、選擇細節，圖片從熱圖雜訊中逐步顯影](docs/demo.gif)
+
+| | |
+|---|---|
+| 端對端生成（RTX 4060 Ti 8GB、Flux schnell Q4） | 約 17–20 秒／張 |
+| 多台 ComfyUI 擴充 | 1 → 2 → 4 台吞吐量 ×1.97、×3.91（[壓測](docs/BENCHMARK.md)） |
+| 排程成本 | 約 20ms／張；開啟 SQLite WAL 前是它的 3 倍 |
+| 測試 | 後端 67 個 pytest，GitHub Actions 每次推送執行 |
 
 ## 功能
 
-- **模板化工作流**：把 ComfyUI 匯出的 API JSON 搭配一份 YAML，就能變成新手表單
-- **中文描述自動翻譯**：Flux 的文字編碼器幾乎只看得懂英文，含中文的描述會先翻成英文再送出；紀錄同時保留原文和實際送出的英文，翻譯失敗時會明確告知，不會把中文直接送進模型
+**給新手**
+- **白話表單**：每個 ComfyUI 工作流配一份 YAML，把節點參數變成「尺寸」「細節程度」「改變程度」這類選項
+- **中文描述自動翻譯**：Flux 的文字編碼器幾乎只看得懂英文，中文會先翻成英文再送出；紀錄同時保留原文和送出的英文，翻譯失敗時明確告知，不會把中文直接送進模型
+- **補充細節與畫風**：點選光線、鏡頭、氛圍等細節（最多 4 個）與 7 種畫風，自動擴寫成完整的英文提示詞
 - **三種模板**：文生圖、圖生圖（拖放、點擊或 Ctrl+V 貼上原圖）、Real-ESRGAN 高清放大；生成好的圖可以直接接著放大或拿去圖生圖
-- **管理紀錄**：刪除單張（按兩次確認，或在放大檢視按 Delete），一鍵清除失敗與取消的紀錄
-- **風格預設與批次生成**：7 種畫風一鍵套用；一次生成 1–4 張，種子連號，每張都能單獨重現
-- **送單前檢查**：比對 ComfyUI `/object_info`，缺模型或缺節點時直接告訴使用者，不必等排隊排到才失敗
-- **持久化任務佇列**：任務存在 SQLite，服務重啟後還在；8GB 顯卡一次只跑一個任務
-- **多台 ComfyUI**：每台各有一個 worker，從同一個佇列原子地搶任務；圖生圖的原圖會自動複製到執行的那一台
-- **可替換的佇列**：SQLite（預設、零設定）或 Redis（worker 可分散到不同行程），[壓測結果](docs/BENCHMARK.md)
-- **斷線自動重連與事件看門狗**：和 ComfyUI 的 WebSocket 中斷時會退避重試；連線還在但 30 秒沒有任何事件時，改用 HTTP 查詢任務狀態，完成事件在網路上遺失也不會卡住
-- **即時去雜訊預覽**：解析 ComfyUI WebSocket 的二進位預覽影格，每一步都推到前端，由 WebGL shader 呈現從熱圖雜訊溶解成畫面的過程
-- **取樣遙測**：步數、經過時間、σ 雜訊強度排程，以及從 ComfyUI 讀取的即時 VRAM 用量
-- **WebGL 介面特效**：domain-warped fbm 雜訊場背景（會隨生成脈動、隨游標擾動，限制在 30fps 以免和 ComfyUI 搶顯示卡）、卡片 3D 傾斜反光、View Transitions 縮圖變形；全部支援「減少動態」設定，也能在不支援 WebGL 時退回一般圖片
-- **可重現**：隨機種子會寫回任務紀錄，可以一鍵套用同一組設定
+- **批次、插隊與管理**：一次 1–4 張（種子連號可重現）、排隊中的任務可以移到最前面、刪除單張或一鍵清除失敗紀錄（都要按兩次確認）
+
+**排程與可靠性**
+- **持久化佇列**：任務存在 SQLite，服務重啟後還在；佇列可換成 Redis，讓 worker 分散到不同行程
+- **多台 ComfyUI**：每台一個 worker，以資料庫條件更新原子地搶任務；圖生圖的原圖會自動複製到執行的那一台
+- **送單前檢查**：比對 ComfyUI `/object_info`，缺模型或缺節點時立刻告知，不必等排到才失敗
+- **斷線重連與事件看門狗**：WebSocket 中斷會退避重試；30 秒沒有任何事件就改用 HTTP 查詢狀態，完成事件遺失也不會卡住
+
+**介面**
+- **即時去雜訊預覽**：解析 ComfyUI 的二進位預覽影格，用 WebGL shader 呈現從熱圖雜訊逐塊溶解成畫面的過程
+- **取樣遙測**：步數、經過時間、σ 雜訊強度，以及從 ComfyUI 讀取的即時 VRAM 用量
+- **WebGL 特效**：domain-warped fbm 雜訊場背景（限制 30fps 以免和 ComfyUI 搶顯示卡）、卡片 3D 傾斜反光、View Transitions 縮圖變形；支援「減少動態」設定與無 WebGL 的退回
 
 ## 架構
 
+```mermaid
+flowchart LR
+    UI["React + WebGL<br/>（Vite）"] -- "HTTP / WebSocket" --> API["FastAPI"]
+    API -- "中文描述" --> TR["翻譯<br/>MyMemory / Google"]
+    API -- "任務狀態" --> DB[("SQLite<br/>WAL")]
+    API -- "派送 id" --> Q{{"佇列<br/>SQLite 或 Redis"}}
+    Q --> W1["Worker 1"] & W2["Worker N"]
+    W1 -- "claim" --> DB
+    W1 -- "/prompt · /ws · /history" --> C1["ComfyUI 1<br/>（GPU）"]
+    W2 -- "/prompt · /ws · /history" --> C2["ComfyUI N"]
+    W1 & W2 -- "進度 / 預覽" --> BUS["事件匯流排"] -- "WebSocket" --> UI
 ```
-React (Vite) ──HTTP/WS──▶ FastAPI ──▶ SQLite（任務＝佇列）
-                             │
-                           Worker ──HTTP/WS──▶ ComfyUI
-```
+
+一個任務的生命週期：
+
+1. 前端送出模板 id 和欄位值；後端驗證、翻譯中文、套進 workflow，並向 ComfyUI 確認模型都在
+2. 寫入 SQLite（`queued`），把 id 放進佇列
+3. 空閒的 worker 取出 id，用 `UPDATE … WHERE status = 'queued'` 原子地搶下任務
+4. 送到 ComfyUI，透過 WebSocket 接收進度與預覽影格，即時轉推給所有前端
+5. 完成後從 `/history` 找出輸出、下載存檔，標記 `succeeded`
+
+規劃與進度：[docs/PLAN.md](docs/PLAN.md)
 
 ## 本機執行
 
@@ -40,6 +67,7 @@ React (Vite) ──HTTP/WS──▶ FastAPI ──▶ SQLite（任務＝佇列�
 | diffusion_models | `flux1-schnell-Q4_0.gguf` |
 | clip | `t5xxl_fp8_e4m3fn.safetensors`、`clip_l.safetensors` |
 | vae | `ae.safetensors` |
+| upscale_models（高清放大） | `RealESRGAN_x4plus.pth` |
 
 ```bash
 # 後端

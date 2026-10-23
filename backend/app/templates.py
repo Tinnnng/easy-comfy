@@ -41,7 +41,7 @@ class ChoiceOption(BaseModel):
 class TemplateField(BaseModel):
     key: str
     label: str
-    type: Literal["text", "number", "choice", "seed", "image"]
+    type: Literal["text", "number", "choice", "tags", "seed", "image"]
     help: str | None = None
     required: bool = False
     advanced: bool = False
@@ -53,13 +53,15 @@ class TemplateField(BaseModel):
     min: float | None = None
     max: float | None = None
     max_length: int | None = None
+    # tags 欄位最多可以選幾個
+    max_select: int | None = None
 
     @model_validator(mode="after")
     def _check_shape(self) -> "TemplateField":
-        if self.type == "choice":
+        if self.type in ("choice", "tags"):
             if not self.options:
-                raise ValueError(f"choice 欄位 {self.key} 需要 options")
-            if self.default is not None and self.default not in {o.value for o in self.options}:
+                raise ValueError(f"{self.type} 欄位 {self.key} 需要 options")
+            if self.type == "choice" and self.default is not None and self.default not in {o.value for o in self.options}:
                 raise ValueError(f"欄位 {self.key} 的 default 不在 options 裡")
         elif not self.targets:
             raise ValueError(f"欄位 {self.key} 需要 targets")
@@ -89,7 +91,7 @@ class Template(BaseModel):
             "action": self.action,
             "fields": [
                 f.model_dump(include={"key", "label", "type", "help", "required", "advanced",
-                                      "default", "min", "max", "max_length", "translate"})
+                                      "default", "min", "max", "max_length", "max_select", "translate"})
                 | {"options": [{"value": o.value, "label": o.label} for o in f.options]}
                 for f in self.fields
             ],
@@ -105,7 +107,7 @@ class Template(BaseModel):
         resolved: dict[str, Any] = {}
         for f in self.fields:
             value = params.get(f.key, f.default)
-            if value is None or value == "":
+            if value is None or value == "" or value == []:
                 if f.required:
                     raise ParamError(f.key, f"「{f.label}」必填")
                 continue
@@ -130,6 +132,16 @@ class Template(BaseModel):
             elif f.type == "choice":
                 if value not in {o.value for o in f.options}:
                     raise ParamError(f.key, "不是可用的選項")
+            elif f.type == "tags":
+                if not isinstance(value, list):
+                    raise ParamError(f.key, "格式不正確")
+                allowed = [o.value for o in f.options]
+                if any(v not in allowed for v in value):
+                    raise ParamError(f.key, "包含不存在的選項")
+                if f.max_select and len(set(value)) > f.max_select:
+                    raise ParamError(f.key, f"最多選 {f.max_select} 個")
+                # 依選項原本的順序排好，同一組選擇產生的提示詞就會一樣
+                value = [v for v in allowed if v in value]
             elif f.type == "image":
                 value = str(value)
                 if not IMAGE_NAME.match(value):
@@ -159,6 +171,10 @@ class Template(BaseModel):
                 for target, v in option.set.items():
                     _set_input(workflow, target, v)
                 appends += option.append.items()
+            elif f.type == "tags":
+                for option in f.options:
+                    if option.value in value:
+                        appends += option.append.items()
             else:
                 for target in f.targets:
                     _set_input(workflow, target, value)

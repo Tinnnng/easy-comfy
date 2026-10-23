@@ -20,6 +20,10 @@ class JobQueue(Protocol):
 
     async def push(self, job_id: str) -> None: ...
 
+    async def push_front(self, job_id: str) -> None:
+        """插隊：讓這個任務下一個被取走。"""
+        ...
+
     async def pop(self, timeout: float) -> str | None:
         """等最多 timeout 秒，回傳下一個候選任務 id；沒有就回傳 None。"""
         ...
@@ -35,6 +39,10 @@ class SqliteQueue:
         self._wake = asyncio.Event()
 
     async def push(self, job_id: str) -> None:
+        self._wake.set()
+
+    async def push_front(self, job_id: str) -> None:
+        # 順序由資料庫的 priority 欄位決定，這裡只要叫醒 worker
         self._wake.set()
 
     async def pop(self, timeout: float) -> str | None:
@@ -70,6 +78,10 @@ class RedisQueue:
 
     async def push(self, job_id: str) -> None:
         await self.redis.lpush(self.key, job_id)
+
+    async def push_front(self, job_id: str) -> None:
+        # BRPOP 從右邊取，所以從右邊塞進去就是下一個；原本那一筆之後被取到時 claim 會失敗而略過
+        await self.redis.rpush(self.key, job_id)
 
     async def pop(self, timeout: float) -> str | None:
         # BRPOP 的 timeout 單位是秒，0 代表永遠等，所以至少給 1

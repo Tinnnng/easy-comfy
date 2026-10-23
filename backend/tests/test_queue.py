@@ -164,3 +164,14 @@ def test_secondary_instance_copies_uploaded_image_from_primary(tmp_path):
     assert job.status == JobStatus.succeeded
     assert stored["secondary"] == {"cat.png": b"IMG"}
     assert workflow["6"]["inputs"]["image"] == "cat.png"
+
+
+def test_redis_push_front_is_next(tmp_path):
+    async def go():
+        q = RedisQueue(fakeredis.FakeAsyncRedis(decode_responses=True))
+        for i in ("a", "b", "c"):
+            await q.push(i)
+        await q.push_front("c")
+        return [await q.pop(1) for _ in range(4)]
+
+    assert asyncio.run(go()) == ["c", "a", "b", "c"]

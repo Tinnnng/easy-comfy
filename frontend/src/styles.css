@@ -287,7 +287,8 @@ kbd {
 @media (max-width: 960px) { .develop { position: static; } }
 
 .viewport {
-  position: relative; width: 100%; max-height: 70vh; margin: 0 auto;
+  /* 寬度同時受欄寬與視窗高度限制：整個顯影台（畫面＋遙測）要能塞進一個螢幕，sticky 才有效 */
+  position: relative; width: min(100%, calc((100vh - 300px) * var(--ar, 1))); margin: 0 auto;
   border-radius: 6px; overflow: hidden; background: #000;
   box-shadow: 0 0 0 1px var(--line), 0 40px 100px -40px rgba(188, 55, 84, 0.6);
   transition: aspect-ratio 0.5s var(--ease-out);
@@ -546,3 +547,30 @@ kbd {
   box-shadow: 0 0 24px -4px rgba(188, 55, 84, 0.8);
 }
 .archive-head .clear { margin-left: auto; font-size: var(--t-xs); }
+
+/* ===== 插隊 ===== */
+.foot-actions { display: inline-flex; gap: 16px; }
+.tile-priority {
+  position: absolute; left: 10px; top: 10px; z-index: 2;
+  height: 32px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid rgba(249, 142, 9, 0.6); background: rgba(12, 10, 29, 0.72); backdrop-filter: blur(8px);
+  color: var(--flare); font-size: var(--t-xs);
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+.tile-priority:hover { background: rgba(249, 142, 9, 0.18); box-shadow: 0 0 20px -4px rgba(249, 142, 9, 0.7); }
+
+/* ===== 補充細節（多選） ===== */
+.tag-count { margin-left: 8px; font-family: var(--mono); font-weight: 400; font-size: var(--t-xs); color: var(--muted); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag {
+  padding: 6px 12px; border-radius: 999px; font-size: var(--t-xs);
+  border: 1px solid var(--line); background: var(--glass); backdrop-filter: blur(10px); color: var(--muted);
+  transition: border-color 0.2s, color 0.2s, background-color 0.2s, transform 0.2s var(--ease-out);
+}
+.tag:not(.is-on):hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.tag.is-on {
+  color: var(--flare); border-color: var(--ember); background: rgba(249, 142, 9, 0.12);
+  box-shadow: 0 0 16px -6px rgba(249, 142, 9, 0.7);
+}
+.tag:active:not(:disabled) { transform: scale(0.95); }
+.tag:disabled { opacity: 0.35; cursor: not-allowed; }

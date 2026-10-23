@@ -40,6 +40,26 @@ fields:
         label: 大幅
         set: { "9.steps": 12, "9.denoise": 0.92 }
 
+  - key: details
+    label: 補充細節
+    help: 點選想加入的細節，會自動接上英文描述。
+    type: tags
+    default: []
+    max_select: 4
+    options:
+      - { value: cinematic, label: 電影感光線, append: { "4.text": ", cinematic lighting, dramatic shadows" } }
+      - { value: golden, label: 黃金時刻, append: { "4.text": ", golden hour, warm sunlight" } }
+      - { value: soft, label: 柔和光線, append: { "4.text": ", soft diffused light" } }
+      - { value: neon, label: 霓虹夜色, append: { "4.text": ", neon lights, night scene" } }
+      - { value: closeup, label: 特寫, append: { "4.text": ", close-up shot" } }
+      - { value: wide, label: 廣角遠景, append: { "4.text": ", wide-angle shot, expansive view" } }
+      - { value: bokeh, label: 淺景深, append: { "4.text": ", shallow depth of field, bokeh background" } }
+      - { value: aerial, label: 俯瞰視角, append: { "4.text": ", aerial view, from above" } }
+      - { value: mist, label: 薄霧, append: { "4.text": ", light mist, atmospheric haze" } }
+      - { value: dreamy, label: 夢幻, append: { "4.text": ", dreamy ethereal atmosphere" } }
+      - { value: serene, label: 寧靜, append: { "4.text": ", calm serene mood" } }
+      - { value: detailed, label: 高細節, append: { "4.text": ", highly detailed, intricate details, sharp focus" } }
+
   - key: style
     label: 畫風
     help: 會在描述後面自動加上對應的英文風格詞。

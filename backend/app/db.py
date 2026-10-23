@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any
 
 from sqlalchemy import JSON, Column, event
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Session, SQLModel, create_engine, func, select
 
 
 def utcnow() -> datetime:
@@ -41,6 +41,8 @@ class Job(SQLModel, table=True):
     total_steps: int | None = None
     # 由哪一台 ComfyUI 執行
     worker: str | None = None
+    # 數字大的先跑；同優先權依建立時間排隊
+    priority: int = 0
     created_at: datetime = Field(default_factory=utcnow, index=True)
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -79,6 +81,7 @@ class Database:
         "sources": "JSON DEFAULT '{}'",
         "total_steps": "INTEGER",
         "worker": "VARCHAR",
+        "priority": "INTEGER NOT NULL DEFAULT 0",
     }
 
     def session(self) -> Session:
@@ -136,22 +139,29 @@ class Database:
             ).rowcount
         return self.get(job_id) if changed else None
 
+    def top_priority(self) -> int:
+        with self.session() as s:
+            stmt = select(func.max(Job.priority)).where(Job.status == JobStatus.queued)
+            return s.exec(stmt).one() or 0
+
     def queued_ids(self) -> list[str]:
         with self.session() as s:
-            stmt = select(Job.id).where(Job.status == JobStatus.queued).order_by(Job.created_at)
+            stmt = (select(Job.id).where(Job.status == JobStatus.queued)
+                    .order_by(Job.priority.desc(), Job.created_at))
             return list(s.exec(stmt))
 
     def next_queued(self) -> Job | None:
         with self.session() as s:
             stmt = (select(Job).where(Job.status == JobStatus.queued)
-                    .order_by(Job.created_at).limit(1))
+                    .order_by(Job.priority.desc(), Job.created_at).limit(1))
             return s.exec(stmt).first()
 
     def queue_position(self, job: Job) -> int:
-        """前面還有幾個 queued 任務。"""
+        """前面還有幾個 queued 任務（優先權較高的，或同優先權但比較早建立的）。"""
         with self.session() as s:
-            stmt = select(Job).where(Job.status == JobStatus.queued, Job.created_at < job.created_at)
-            return len(list(s.exec(stmt)))
+            ahead = (Job.priority > job.priority) | ((Job.priority == job.priority) & (Job.created_at < job.created_at))
+            stmt = select(func.count()).select_from(Job).where(Job.status == JobStatus.queued, ahead)
+            return s.exec(stmt).one()
 
     def fail_interrupted(self) -> int:
         """服務重啟時，把上次沒跑完的 running 任務標記為失敗。"""

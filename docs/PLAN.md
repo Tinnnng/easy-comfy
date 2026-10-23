@@ -124,13 +124,13 @@ fields:
 
 ### Phase 3：新手體驗
 - [x] 中文描述自動翻譯（MyMemory 免費 API，可改用 Google Cloud Translation）
-- [ ] 提示詞改寫助理（把簡短描述擴寫成細節完整的 prompt）
+- [x] 提示詞擴寫：「補充細節」多選（光線、鏡頭、氛圍、品質 12 種，最多 4 個），不需要 LLM
 - [x] 風格預設（7 種畫風 → 自動接上英文風格詞；LoRA 待下載模型後再加）
 - [x] 圖生圖模板與圖片上傳（拖放、點擊、貼上；三檔改變程度經實測校準）
 - [x] 高清放大模板（Real-ESRGAN x4plus，2 倍／4 倍）
 - [x] 刪除單張紀錄、一鍵清除失敗與取消的紀錄
 - [x] 批次生成（一次 1–4 張，種子連號可重現）
-- [ ] 任務優先權（目前單人使用，等多人共用時再做）
+- [x] 任務優先權：排隊中的任務可以移到最前面（SQLite 依 priority 排序、Redis 從另一端插入）
 
 ### Phase 4：工程亮點
 - [x] 佇列後端可切換 SQLite／Redis，壓測腳本與 SQLite 結果（發現並修正 journal 造成的排程成本，見 BENCHMARK.md）
@@ -139,7 +139,7 @@ fields:
 - [x] Docker Compose 設定（Redis + 後端 + nginx 前端）
 - [x] Docker Compose 實際驗證（經 nginx 跑完翻譯、文生圖、上傳、圖生圖、刪除）
 - [x] WebSocket 事件看門狗：30 秒沒事件就改用 HTTP 查詢狀態（Compose 首次啟動時實際遇到完成事件遺失）
-- [ ] README：Demo GIF、架構圖、量測數據
+- [x] README：Demo GIF、Mermaid 架構圖、量測數據
 
 ## 7. 技術選型
 

@@ -48,7 +48,10 @@ export function Loupe({ job, number, template, onRequestClose, onStep, onReuse, 
     .map((f) => {
       const raw = job.params[f.key];
       const option = f.options.find((o) => o.value === raw);
-      return { key: f.key, label: f.label, type: f.type, value: option?.label ?? String(raw) };
+      const value = Array.isArray(raw)
+        ? raw.map((v) => f.options.find((o) => o.value === v)?.label ?? v).join("、") || "無"
+        : option?.label ?? String(raw);
+      return { key: f.key, label: f.label, type: f.type, value };
     });
 
   const copySeed = async () => {

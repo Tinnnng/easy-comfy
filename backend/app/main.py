@@ -214,6 +214,21 @@ def create_app(settings: Settings = default_settings, translator: Translator | N
             raise HTTPException(409, "任務已結束，無法取消")
         return {"ok": True}
 
+    @app.post("/api/jobs/{job_id}/prioritize")
+    async def prioritize_job(job_id: str) -> dict[str, Any]:
+        """把排隊中的任務移到最前面。"""
+        job = db.get(job_id)
+        if job is None:
+            raise HTTPException(404, "找不到這個任務")
+        if job.status != JobStatus.queued:
+            raise HTTPException(409, "只有排隊中的任務可以優先處理")
+        job = db.update(job_id, priority=db.top_priority() + 1)
+        await app.state.queue.push_front(job_id)
+        # 插隊後所有排隊任務的順位都變了，一起通知前端
+        for other in db.queued_ids():
+            bus.publish({"type": "job", "job": with_position(db.get(other))})
+        return with_position(job)
+
     def remove(job_ids: list[str], statuses: set[JobStatus]) -> list[str]:
         """刪除任務與它的輸出圖片，並通知所有前端。"""
         deleted = db.delete(job_ids, statuses)

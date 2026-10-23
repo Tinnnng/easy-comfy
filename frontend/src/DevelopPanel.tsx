@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { Job } from "./api";
 import { DenoiseCanvas } from "./fx/DenoiseCanvas";
 import { useTween } from "./fx/effects";
@@ -12,6 +12,7 @@ interface Props {
   /** 不是剛送出的任務，只是拿最近的作品擺著 */
   recent: boolean;
   onCancel: (job: Job) => void;
+  onPrioritize: (job: Job) => void;
   onOpen: (job: Job) => void;
 }
 
@@ -31,10 +32,11 @@ function useElapsed(job: Job | null) {
 }
 
 /** 顯影台：WebGL 去雜訊畫面 + 取樣遙測。 */
-export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCancel, onOpen }: Props) {
+export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCancel, onPrioritize, onOpen }: Props) {
   const status = job?.status ?? "empty";
   const [imageAspect, setImageAspect] = useState(1);
   const ratio = aspect ? `${aspect[0]} / ${aspect[1]}` : String(imageAspect);
+  const ratioValue = aspect ? aspect[0] / aspect[1] : imageAspect;
   const progress = job?.progress ?? 0;
   const finalSrc = job?.status === "succeeded" && job.images[0] ? `/outputs/${job.images[0]}` : null;
   const step = status === "succeeded" ? totalSteps : Math.round(progress * totalSteps);
@@ -68,7 +70,7 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
     <section className={`develop state-${status}`} aria-labelledby="develop-title">
       <h2 id="develop-title" className="visually-hidden">目前的生成</h2>
 
-      <div className="viewport" style={{ aspectRatio: ratio }}>
+      <div className="viewport" style={{ aspectRatio: ratio, "--ar": ratioValue } as CSSProperties}>
         <DenoiseCanvas
           className="viewport-canvas"
           src={src}
@@ -126,9 +128,16 @@ export function DevelopPanel({ job, aspect, preview, totalSteps, recent, onCance
           {status === "cancelled" && "已取消"}
         </p>
         {job && (status === "queued" || status === "running") && (
-          <button className="ghost" onClick={() => onCancel(job)}>
-            取消這張
-          </button>
+          <span className="foot-actions">
+            {status === "queued" && !!job.queue_position && (
+              <button className="ghost" onClick={() => onPrioritize(job)}>
+                優先處理
+              </button>
+            )}
+            <button className="ghost" onClick={() => onCancel(job)}>
+              取消這張
+            </button>
+          </span>
         )}
       </div>
 

@@ -210,6 +210,14 @@ export function App() {
     }
   }
 
+  async function prioritize(job: Job) {
+    try {
+      upsertJob(await api.prioritizeJob(job.id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e : new ApiError(String(e)));
+    }
+  }
+
   async function cancel(job: Job) {
     try {
       await api.cancelJob(job.id);
@@ -287,6 +295,7 @@ export function App() {
               totalSteps={focusJob?.total_steps ?? (steps ? Number(steps[1]) : 4)}
               recent={!!focusJob && focusJob !== batchJob}
               onCancel={cancel}
+              onPrioritize={prioritize}
               onOpen={(j) => withTransition(() => setLoupeId(j.id))}
             />
           </div>
@@ -307,6 +316,7 @@ export function App() {
               openId={loupeId}
               onOpen={(j) => withTransition(() => setLoupeId(j.id))}
               onDelete={remove}
+              onPrioritize={prioritize}
             />
           )}
         </section>

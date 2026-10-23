@@ -144,3 +144,21 @@ def test_finished_image_can_become_an_input(client, tmp_path):
     r = client.post(f"/api/jobs/{job.id}/as-input")
     assert r.status_code == 201 and uploaded["data"] == b"PNG"
     assert client.post(f"/api/jobs/{_add_job(client, JobStatus.failed).id}/as-input").status_code == 404
+
+
+def test_prioritize_moves_job_to_front(client):
+    from app.db import JobStatus
+
+    first, second, third = (_add_job(client, JobStatus.queued) for _ in range(3))
+    r = client.post(f"/api/jobs/{third.id}/prioritize")
+    assert r.status_code == 200 and r.json()["queue_position"] == 0
+    positions = {j["id"]: j["queue_position"] for j in client.get("/api/jobs").json()}
+    assert [positions[first.id], positions[second.id], positions[third.id]] == [1, 2, 0]
+    assert client.app.state.pool.db.next_queued().id == third.id
+
+
+def test_only_queued_jobs_can_be_prioritized(client):
+    from app.db import JobStatus
+
+    done = _add_job(client, JobStatus.succeeded)
+    assert client.post(f"/api/jobs/{done.id}/prioritize").status_code == 409
