@@ -57,6 +57,15 @@ flowchart LR
 
 規劃與進度：[docs/PLAN.md](docs/PLAN.md)
 
+## 工程紀錄：排程成本與可靠性設計取捨
+
+- **SQLite journal 模式讓排程成本多了三倍**：壓測時發現排程成本（任務從進佇列到開始執行之間，扣掉模型生成時間的額外開銷）異常地高，而且台數越多越嚴重——4 台 ComfyUI 時高達 56.4%。
+  > 情況說明：先排除是壓測腳本自己造成干擾（原本每 10ms 查一次所有任務狀態會和 worker 搶資料庫），改成每 50ms 一次 `count` 查詢後數字幾乎沒變，確認不是量測問題。推測是一個任務從建立到完成要 commit 4–5 次（建立、搶單、開始、進度、完成），SQLite 預設的 rollback journal 每次 commit 都要 fsync，在 Windows 上約 10ms，台數越多、同時寫入的 worker 越多，彼此等鎖的時間也越長。改成 `journal_mode=WAL` + `synchronous=NORMAL`（[`backend/app/db.py`](backend/app/db.py)）後，WAL 下寫入只追加到記錄檔、讀取不會被寫入擋住，4 台時排程成本從 56.4% 降到 12.5%，驗證了推測。完整數據與方法見 [docs/BENCHMARK.md](docs/BENCHMARK.md)。
+- **多台 ComfyUI 擴充：原子搶單，不用分散式鎖**：每台 ComfyUI 配一個 worker，全部從同一張 SQLite 任務表搶任務，吞吐量幾乎和台數成正比（1 → 2 → 4 台：×1.97、×3.91）。
+  > 情況說明：多個 worker 同時盯著同一批 `queued` 任務，如果「查詢待辦任務」和「標記成 running」是兩步，就會有兩台同時搶到同一筆的競態。解法是把搶單寫成一條原子的 `UPDATE job SET status = 'running' WHERE id = ? AND status = 'queued'`（[`Database.claim`](backend/app/db.py)）：SQLite 的寫入本身就序列化，誰先 commit 誰就搶到，後到的 `UPDATE` 影響 0 筆就自然放棄，不需要額外的鎖或分散式協調。圖生圖上傳的原圖只存在第一台，其他台搶到任務時才按需把原圖複製過去（[`Worker._sync_inputs`](backend/app/worker.py)），避免每張上傳圖都要廣播到所有 ComfyUI。
+- **斷線重連與事件看門狗：寧可多問一次 ComfyUI，也不要卡死任務**：WebSocket 進度推播中斷時用退避重試重連，30 秒沒收到任何事件就改成用 HTTP 問 ComfyUI 任務狀態。
+  > 情況說明：長任務跑到一半 WebSocket 斷線是正常狀況（ComfyUI 重啟、網路抖動），重連後不能直接假設任務還在跑——必須先問 `/history` 確認任務是「還在執行」「已經做完」「已經失敗」還是「ComfyUI 重啟後整個遺失」（[`Worker._finished_while_away`](backend/app/worker.py)），否則重連後會錯過完成事件、任務永遠卡在 running。實測在 Docker Compose 第一次啟動時真的遇過完成事件遺失（事件在網路上掉了，不是 ComfyUI 沒送），所以額外加了「閒置看門狗」：事件迴圈 30 秒沒收到任何東西就主動用 HTTP 查一次狀態，查到完成就直接結束，不用等下一個事件（[`Worker._listen`](backend/app/worker.py)）。重連次數上限 5 次、延遲用 `2^失敗次數`（上限 10 秒）的指數退避，避免 ComfyUI 短暫不可用時瘋狂重試。
+
 ## 本機執行
 
 需要：Python 3.11+、Node.js 20+，以及已啟動的 ComfyUI（預設 `http://127.0.0.1:8188`）。
